@@ -1006,8 +1006,7 @@ static int imluaProcessGrayMorphConvolve (lua_State *L)
 
   imlua_checknotcomplex(L, 1, src_image);
   imlua_match(L, src_image, dst_image);
-  imlua_checkdatatype(L, 3, kernel, IM_INT);
-  imlua_matchsize(L, src_image, kernel);
+  imlua_checkkernel(L, kernel, 3);
 
   lua_pushboolean(L, imProcessGrayMorphConvolve(src_image, dst_image, kernel, ismax));
   return 1;
@@ -1144,8 +1143,8 @@ static int imluaProcessBinMorphConvolve (lua_State *L)
 
   imlua_checkcolorspace(L, 1, src_image, IM_BINARY);
   imlua_match(L, src_image, dst_image);
-  imlua_checkdatatype(L, 3, kernel, IM_INT);
-  imlua_matchsize(L, src_image, kernel);
+  imlua_checkdatatype(L, 3, kernel, IM_INT);  /* can only be INT here */
+  imlua_checkkernel(L, kernel, 3);
 
   lua_pushboolean(L, imProcessBinMorphConvolve(src_image, dst_image, kernel, hit_white, iter));
   return 1;
@@ -1651,6 +1650,7 @@ static int imluaProcessSharpKernel(lua_State *L)
   double p2 = luaL_checknumber(L, 5);
 
   imlua_match(L, src_image, dst_image);
+  imlua_checkkernel(L, kernel, 2);
 
   imProcessSharpKernel(src_image, kernel, dst_image, p1, p2);
   return 0;
