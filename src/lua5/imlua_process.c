@@ -989,6 +989,11 @@ static int imluaProcessSwirl(lua_State *L)
   return 1;
 }
 
+static void imlua_checkkernel(lua_State *L, imImage* kernel, int index)
+{
+  imlua_checkcolorspace(L, index, kernel, IM_GRAY);
+  luaL_argcheck(L, kernel->data_type == IM_INT || kernel->data_type == IM_FLOAT, index, "kernel data type can be int or float only");
+}
 
 /*****************************************************************************\
  Morphology Operations for Gray Images
@@ -1334,17 +1339,6 @@ static int imluaProcessRankMinConvolve (lua_State *L)
 
   lua_pushboolean(L, imProcessRankMinConvolve(src_image, dst_image, kernel_size));
   return 1;
-}
-
-
-/*****************************************************************************\
- Convolution Operations
-\*****************************************************************************/
-
-static void imlua_checkkernel(lua_State *L, imImage* kernel, int index)
-{
-  imlua_checkcolorspace(L, index, kernel, IM_GRAY);
-  luaL_argcheck(L, kernel->data_type == IM_INT || kernel->data_type == IM_FLOAT, index, "kernel data type can be int or float only");
 }
 
 /*****************************************************************************\
