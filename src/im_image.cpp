@@ -88,6 +88,15 @@ static void iImageInit(imImage* image, int width, int height, int color_space, i
     image->data = (void**)malloc(depth * sizeof(void*));
 }
 
+static void iImageInitData(imImage* image, void* data_buffer)
+{
+  /* initialize data plane pointers */
+  image->data[0] = data_buffer;
+  int depth = image->has_alpha ? image->depth + 1 : image->depth;
+  for (int d = 1; d < depth; d++)
+    image->data[d] = (imbyte*)(image->data[0]) + d*image->plane_size;
+}
+
 imImage* imImageInit(int width, int height, int color_mode, int data_type, void* data_buffer, long* palette, int palette_count)
 {
   if (!imImageCheckFormat(color_mode, data_type))
@@ -99,11 +108,7 @@ imImage* imImageInit(int width, int height, int color_mode, int data_type, void*
   iImageInit(image, width, height, imColorModeSpace(color_mode), data_type, imColorModeHasAlpha(color_mode));
 
   if (data_buffer)
-  {
-    int depth = image->has_alpha? image->depth+1: image->depth;
-    for (int d = 0; d < depth; d++)
-      image->data[d] = (imbyte*)data_buffer + d*image->plane_size;
-  }
+    iImageInitData(image, data_buffer);
 
   // MAP, GRAY or BINARY always have a palette
   if (imColorModeDepth(imColorModeSpace(color_mode)) == 1)
@@ -148,16 +153,15 @@ imImage* imImageCreate(int width, int height, int color_space, int data_type)
   }
   
   /* allocate data buffer */
-  image->data[0] = malloc(image->size);
+  int size = image->has_alpha ? image->size + image->plane_size: image->size;
+  image->data[0] = malloc(size);
   if (!image->data[0])
   {
     imImageDestroy(image);
     return NULL;
   }
 
-  /* initialize data plane pointers */
-  for (int d = 1; d < image->depth; d++)
-    image->data[d] = (imbyte*)(image->data[0]) + d*image->plane_size;
+  iImageInitData(image, image->data[0]);
 
   imImageClear(image);
 
@@ -193,9 +197,7 @@ void imImageAddAlpha(imImage* image)
   if (!new_data)
     return;
 
- image->data[0] = new_data;
-  for (int d = 1; d < image->depth+1; d++)
-    image->data[d] = (imbyte*)(image->data[0]) + d*image->plane_size;
+  iImageInitData(image, new_data);
 
   memset(image->data[image->depth], 0, image->plane_size);
 
@@ -213,9 +215,7 @@ void imImageRemoveAlpha(imImage* image)
   if (!new_data)
     return;
 
- image->data[0] = new_data;
-  for (int d = 1; d < image->depth; d++)
-    image->data[d] = (imbyte*)(image->data[0]) + d*image->plane_size;
+  iImageInitData(image, new_data);
 
   image->has_alpha = 0;
 }
@@ -240,10 +240,7 @@ void imImageReshape(imImage* image, int width, int height)
       image->data[0] = data0;
   }
 
-  /* initialize data plane pointers */
-  int depth = image->has_alpha? image->depth+1: image->depth;
-  for (int d = 1; d < depth; d++)
-    image->data[d] = (imbyte*)image->data[0] + d*image->plane_size;
+  iImageInitData(image, image->data[0]);
 }
 
 void imImageDestroy(imImage* image)
