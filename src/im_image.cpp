@@ -90,7 +90,7 @@ static void iImageInit(imImage* image, int width, int height, int color_space, i
 
 static void iImageInitData(imImage* image, void* data_buffer)
 {
-  /* initialize data plane pointers */
+  /* initialize data plane pointers, must be called after image parameters were initialized */
   image->data[0] = data_buffer;
   int depth = image->has_alpha ? image->depth + 1 : image->depth;
   for (int d = 1; d < depth; d++)
@@ -197,11 +197,11 @@ void imImageAddAlpha(imImage* image)
   if (!new_data)
     return;
 
+  image->has_alpha = IM_ALPHA;
+
   iImageInitData(image, new_data);
 
   memset(image->data[image->depth], 0, image->plane_size);
-
-  image->has_alpha = IM_ALPHA;
 }
 
 void imImageRemoveAlpha(imImage* image)
@@ -215,9 +215,9 @@ void imImageRemoveAlpha(imImage* image)
   if (!new_data)
     return;
 
-  iImageInitData(image, new_data);
-
   image->has_alpha = 0;
+
+  iImageInitData(image, new_data);
 }
 
 void imImageReshape(imImage* image, int width, int height)
