@@ -177,7 +177,7 @@ imImage* imImageCreateBased(const imImage* image, int width, int height, int col
   if (color_space < 0) color_space = image->color_space;
   if (data_type < 0) data_type = image->data_type;
 
-  imImage* new_image = imImageCreate(width, height, color_space, data_type);
+  imImage* new_image = imImageCreate(width, height, imColorModeSpace(color_space), data_type);
   imImageCopyAttributes(image, new_image);
 
   if (image->has_alpha)
