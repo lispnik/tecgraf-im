@@ -533,10 +533,10 @@ void imFileFormatPNG::iWriteAttrib(imAttribTable* attrib_table)
       int i;
       imbyte transp_index = *(imbyte*)attrib_data;
       imbyte transp_map[256];
-      for (i=0; i<256; i++)
+      for (i = 0; i<this->palette_count; i++)
         transp_map[i] = 255;
       transp_map[transp_index] = 0;
-      png_set_tRNS(png_ptr, info_ptr, transp_map, 256, NULL);
+      png_set_tRNS(png_ptr, info_ptr, transp_map, this->palette_count, NULL);
     }
     else if (imColorModeSpace(file_color_mode) == IM_GRAY)
     {
