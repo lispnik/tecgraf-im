@@ -59,7 +59,7 @@ class imFileFormatAVI: public imFileFormatBase
   void ReadPalette(unsigned char* bmp_colors);
   void WritePalette(unsigned char* bmp_colors);
   void FixRGBOrder(int bpp);
-  void InitMasks(imDib* dib);
+  void InitMasks();
 
 public:
   imFileFormatAVI(const imFormat* _iformat): imFileFormatBase(_iformat) {}
@@ -397,7 +397,12 @@ int imFileFormatAVI::WriteImageInfo()
       else
         compvars.fccHandler = mmioFOURCC(compression[0],compression[1],compression[2],compression[3]);
 
-      compvars.hic = ICOpen(ICTYPE_VIDEO, compvars.fccHandler, ICMODE_COMPRESS);
+      __try {
+        compvars.hic = ICOpen(ICTYPE_VIDEO, compvars.fccHandler, ICMODE_COMPRESS);
+      }
+      __except (EXCEPTION_EXECUTE_HANDLER) {
+        compvars.hic = NULL;
+      }
     }
 
     if (compvars.hic == NULL)
@@ -467,7 +472,7 @@ void imFileFormatAVI::WritePalette(unsigned char* bmp_colors)
   }
 }
 
-void imFileFormatAVI::InitMasks(imDib* dib)
+void imFileFormatAVI::InitMasks()
 {
   if (dib->bmih->biCompression == BI_BITFIELDS)
   {
@@ -588,7 +593,7 @@ int imFileFormatAVI::ReadImageData(void* data)
   dib = imDibCreateReference((imbyte*)packed_dib, NULL);
 
   if (dib->bmih->biBitCount == 16 || dib->bmih->biBitCount == 32)
-    InitMasks(dib);
+    InitMasks();
   else if (dib->bmih->biBitCount <= 8)
   {
     this->palette_count = dib->palette_count;
