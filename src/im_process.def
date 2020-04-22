@@ -44,12 +44,14 @@ EXPORTS
   imProcessRenderAddUniformNoise
   imProcessRenderBox
   imProcessRenderCondOp
+  imProcessRenderCondOpAlpha
   imProcessRenderCone
   imProcessRenderConstant
   imProcessRenderCosine
   imProcessRenderGaussian
   imProcessRenderLapOfGaussian
   imProcessRenderOp
+  imProcessRenderOpAlpha
   imProcessRenderRamp
   imProcessRenderRandomNoise
   imProcessRenderSinc

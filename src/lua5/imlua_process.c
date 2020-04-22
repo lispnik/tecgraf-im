@@ -2833,6 +2833,32 @@ static int imluaProcessRenderOp (lua_State *L)
   return 1;
 }
 
+static int imluaProcessRenderOpAlpha(lua_State *L)
+{
+  imImage *image = imlua_checkimage(L, 1);
+  const char *render_name = luaL_checkstring(L, 3);
+  int plus = (int)luaL_checkinteger(L, 5);
+
+#ifdef _OPENMP
+  int old_num_threads = omp_get_num_threads();
+  omp_set_num_threads(1);
+#endif
+
+  imlua_checknotcomplex(L, 1, image);
+  luaL_checktype(L, 2, LUA_TFUNCTION);
+  luaL_checktype(L, 4, LUA_TTABLE);
+
+  g_State = L;
+  lua_pushboolean(L, imProcessRenderOpAlpha(image, imluaRenderFunc, (char*)render_name, NULL, plus));
+  g_State = NULL;
+
+#ifdef _OPENMP
+  omp_set_num_threads(old_num_threads);
+#endif
+
+  return 1;
+}
+
 static double imluaRenderCondFunc(int x, int y, int d, int *cond, double *params)
 {
   double ret;
@@ -2873,6 +2899,31 @@ static int imluaProcessRenderCondOp (lua_State *L)
 
   g_State = L;
   lua_pushboolean(L, imProcessRenderCondOp(image, imluaRenderCondFunc, (char*) render_name, NULL));
+  g_State = NULL;
+
+#ifdef _OPENMP
+  omp_set_num_threads(old_num_threads);
+#endif
+
+  return 1;
+}
+
+static int imluaProcessRenderCondOpAlpha(lua_State *L)
+{
+  imImage *image = imlua_checkimage(L, 1);
+  const char *render_name = luaL_checkstring(L, 3);
+
+#ifdef _OPENMP
+  int old_num_threads = omp_get_num_threads();
+  omp_set_num_threads(1);
+#endif
+
+  imlua_checknotcomplex(L, 1, image);
+  luaL_checktype(L, 2, LUA_TFUNCTION);
+  luaL_checktype(L, 4, LUA_TTABLE);
+
+  g_State = L;
+  lua_pushboolean(L, imProcessRenderCondOpAlpha(image, imluaRenderCondFunc, (char*)render_name, NULL));
   g_State = NULL;
 
 #ifdef _OPENMP
@@ -3815,16 +3866,15 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessMergeComplex", imluaProcessMergeComplex},
   {"ProcessMultipleMean", imluaProcessMultipleMean},
   {"ProcessMultipleStdDev", imluaProcessMultipleStdDev},
-  { "ProcessMultipleMedian", imluaProcessMultipleMedian },
+  {"ProcessMultipleMedian", imluaProcessMultipleMedian },
   { "ProcessAutoCovariance", imluaProcessAutoCovariance },
   {"ProcessMultiplyConj", imluaProcessMultiplyConj},
   { "ProcessBackSub", imluaProcessBackSub },
-
   
   {"ProcessQuantizeRGBUniform", imluaProcessQuantizeRGBUniform},
   {"ProcessQuantizeGrayUniform", imluaProcessQuantizeGrayUniform},
-  { "ProcessQuantizeRGBMedianCut", imluaProcessQuantizeRGBMedianCut },
-  { "ProcessQuantizeGrayMedianCut", imluaProcessQuantizeGrayMedianCut },
+  {"ProcessQuantizeRGBMedianCut", imluaProcessQuantizeRGBMedianCut },
+  {"ProcessQuantizeGrayMedianCut", imluaProcessQuantizeGrayMedianCut },
 
   {"ProcessExpandHistogram", imluaProcessExpandHistogram},
   {"ProcessEqualizeHistogram", imluaProcessEqualizeHistogram},
@@ -3837,10 +3887,10 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessNormalizeComponents", imluaProcessNormalizeComponents},
   {"ProcessReplaceColor", imluaProcessReplaceColor},
   {"ProcessSetAlphaColor", imluaProcessSetAlphaColor},
-  { "ProcessPseudoColor", imluaProcessPseudoColor },
-  { "ProcessFixBGR", imluaProcessFixBGR },
-  { "ProcessSelectHue", imluaProcessSelectHue },
-  { "ProcessSelectHSI", imluaProcessSelectHSI },
+  {"ProcessPseudoColor", imluaProcessPseudoColor },
+  {"ProcessFixBGR", imluaProcessFixBGR },
+  {"ProcessSelectHue", imluaProcessSelectHue },
+  {"ProcessSelectHSI", imluaProcessSelectHSI },
 
   {"ProcessBitwiseOp", imluaProcessBitwiseOp},
   {"ProcessBitwiseNot", imluaProcessBitwiseNot},
@@ -3849,6 +3899,8 @@ static const luaL_Reg improcess_lib[] = {
 
   {"ProcessRenderOp", imluaProcessRenderOp},
   {"ProcessRenderCondOp", imluaProcessRenderCondOp},
+  {"ProcessRenderOpAlpha", imluaProcessRenderOpAlpha },
+  {"ProcessRenderCondOpAlpha", imluaProcessRenderCondOpAlpha },
   {"ProcessRenderAddSpeckleNoise", imluaProcessRenderAddSpeckleNoise},
   {"ProcessRenderAddGaussianNoise", imluaProcessRenderAddGaussianNoise},
   {"ProcessRenderAddUniformNoise", imluaProcessRenderAddUniformNoise},
@@ -3873,7 +3925,7 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessNegative", imluaProcessNegative},
   {"ProcessCalcAutoGamma", imluaProcessCalcAutoGamma},
   {"ProcessShiftHSI", imluaProcessShiftHSI},
-  { "ProcessShiftComponent", imluaProcessShiftComponent },
+  {"ProcessShiftComponent", imluaProcessShiftComponent },
 
   {"ProcessRangeContrastThreshold", imluaProcessRangeContrastThreshold},
   {"ProcessLocalMaxThreshold", imluaProcessLocalMaxThreshold},
