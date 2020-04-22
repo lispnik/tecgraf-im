@@ -1186,6 +1186,10 @@ namespace im
       return imProcessRenderOp(image.GetHandle(), render_func, render_name, params, plus); }
     inline int RenderCondOp(Image& image, imRenderCondFunc render_cond_func, const char* render_name, double* params) {
       return imProcessRenderCondOp(image.GetHandle(), render_cond_func, render_name, params); }
+    inline int RenderOpAlpha(Image& image, imRenderFunc render_func, const char* render_name, double* params, int plus) {
+      return imProcessRenderOpAlpha(image.GetHandle(), render_func, render_name, params, plus); }
+    inline int RenderCondOpAlpha(Image& image, imRenderCondFunc render_cond_func, const char* render_name, double* params) {
+      return imProcessRenderCondOpAlpha(image.GetHandle(), render_cond_func, render_name, params); }
     inline int RenderRandomNoise(Image& image) {
       return imProcessRenderRandomNoise(image.GetHandle()); }
     inline int RenderConstant(Image& image, double* value) {
