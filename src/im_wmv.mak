@@ -18,7 +18,7 @@ ifneq ($(findstring dll10, $(TEC_UNAME)), )
 endif
 
 ifndef USE_WMFSDK
-  #vc6-vc8 needs an external SDK
+  #vc9-vc10 needs an external SDK
   ifneq ($(findstring _64, $(TEC_UNAME)), )
     WMFSDK = d:/lng/wmfsdk95
   else
@@ -28,7 +28,7 @@ ifndef USE_WMFSDK
   INCLUDES = $(WMFSDK)/include
   LDIR = $(WMFSDK)/lib
 else
-  #vc9-vc10, wmf sdk is inside Windows SDK
+  # > vc11, wmf sdk is inside Windows SDK
 endif
   
 DEFINES = _CRT_NON_CONFORMING_SWPRINTFS                                     
