@@ -5,19 +5,19 @@ OPT = YES
 SRC = im_format_wmv.cpp
 
 ifneq ($(findstring vc9, $(TEC_UNAME)), )
-  USE_WINSDK = Yes
+  USE_WMFSDK = Yes
 endif
 ifneq ($(findstring vc10, $(TEC_UNAME)), )
-  USE_WINSDK = Yes
+  USE_WMFSDK = Yes
 endif
 ifneq ($(findstring dll9, $(TEC_UNAME)), )
-  USE_WINSDK = Yes
+  USE_WMFSDK = Yes
 endif
 ifneq ($(findstring dll10, $(TEC_UNAME)), )
-  USE_WINSDK = Yes
+  USE_WMFSDK = Yes
 endif
 
-ifndef USE_WINSDK
+ifndef USE_WMFSDK
   #vc6-vc8 needs an external SDK
   ifneq ($(findstring _64, $(TEC_UNAME)), )
     WMFSDK = d:/lng/wmfsdk95
