@@ -14,9 +14,9 @@ USE_IM = Yes
 IM = ..
 LIBS = im_process
 
-FFTW = $(TECTOOLS_HOME)/fftw3
-
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+  # Windows use local
+  FFTW = $(TECTOOLS_HOME)/fftw3
   ifneq ($(findstring _64, $(TEC_UNAME)), )
     LDIR = $(FFTW)/lib/Win64
   else
@@ -25,6 +25,7 @@ ifneq ($(findstring Win, $(TEC_SYSNAME)), )
   INCLUDES += $(FFTW)/include
   LIBS += libfftw3f-3 libfftw3-3
 else  
+  # Linux use system
   LIBS += fftw3f fftw3
 endif
 

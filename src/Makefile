@@ -5,8 +5,8 @@ else
   TECMAKE_CMD = $(MAKE) --no-print-directory -f ../tecmake.mak
 endif
 
-.PHONY: do_all im im_jp2 im_process im_fftw im_lzo imlua5 imlua_jp25 imlua_process5 imlua_fftw5 $(WINLIBS)
-do_all: im im_jp2 im_process im_process_omp im_fftw im_lzo imlua5 imlua_jp25 imlua_process5 imlua_process_omp5 imlua_fftw5 $(WINLIBS)
+.PHONY: do_all im im_jp2 im_process im_fftw im_fftw3 im_lzo imlua5 imlua_jp25 imlua_process5 imlua_fftw5 $(WINLIBS)
+do_all: im im_jp2 im_process im_process_omp im_fftw im_fftw3 im_lzo imlua5 imlua_jp25 imlua_process5 imlua_process_omp5 imlua_fftw5 $(WINLIBS)
 
 im:
 	@$(TECMAKE_CMD)
@@ -20,6 +20,8 @@ im_process_omp:
 	@$(TECMAKE_CMD) MF=im_process USE_OPENMP=Yes
 im_fftw:
 	@$(TECMAKE_CMD) MF=im_fftw
+im_fftw3:
+	@$(TECMAKE_CMD) MF=im_fftw3
 im_lzo:
 	@$(TECMAKE_CMD) MF=im_lzo
   
