@@ -28,7 +28,8 @@
   Since there is no gray format, bpp is always 24bpp.
 */
 
-#define _WIN32_WINNT 0x0500   // Because of TryEnterCriticalSection
+#define _WIN32_WINNT 0x0500    // Because of TryEnterCriticalSection
+#pragma warning(disable: 4995) // Because of deprecated string functions
 
 #include <dshow.h>
 #include <qedit.h>

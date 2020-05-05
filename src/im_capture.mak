@@ -4,78 +4,13 @@ OPT = YES
              
 INCLUDES = ../include
 
-# New Direct X does not includes Direct Show
-# Direct Show is included in latest Platform SDK, but depends on Direct X...
-DXSDK = d:/lng/dxsdk
-WINSDK = d:/lng/winsdk
-
-ifeq ($(TEC_UNAME), vc6)  
-  #Use old Direct X with Direct Show
-  #But do NOT use the VC6 strmiids.lib
-  PLATSDK = d:/lng/vc7/PlatformSDK
-endif
-
-ifeq ($(TEC_UNAME), dll)  
-  #Use old Direct X with Direct Show
-  PLATSDK = d:/lng/vc7/PlatformSDK
-  LDIR = ../lib/$(TEC_UNAME)
-endif
-  
-ifeq ($(TEC_UNAME), vc8)
-  INCLUDES += $(WINSDK)/include
-  LDIR = $(WINSDK)/lib
-endif
-
-ifeq ($(TEC_UNAME), dll8)  
-  INCLUDES += $(WINSDK)/include
-  LDIR = $(WINSDK)/lib
-endif
-  
-ifeq ($(TEC_UNAME), vc8_64)
-  INCLUDES += $(WINSDK)/include
-  LDIR = $(WINSDK)/lib/amd64
-endif
-
-ifeq ($(TEC_UNAME), dll8_64)  
-  INCLUDES += $(WINSDK)/include
-  LDIR = $(WINSDK)/lib/amd64
-endif
-  
-ifneq ($(findstring vc10, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring dll10, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-
-ifneq ($(findstring vc11, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring dll11, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-
-ifneq ($(findstring vc12, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring dll12, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring vc14, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring dll14, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring vc15, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-ifneq ($(findstring dll15, $(TEC_UNAME)), )
-  INCLUDES += $(WINSDK)/include
-endif
-
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
-  INCLUDES += $(DXSDK)/include
+  # We use ISampleGrabberCB from qedit.h which is available only in an old Windows SDK (6.1 - Vista)
+  # and also need an old DirectX SDK (9.15).
+  DXSDK = d:/lng/dxsdk
+  WINSDK = d:/lng/winsdk
+  
+  INCLUDES += $(WINSDK)/include $(DXSDK)/include 
   SRC = im_capture_dx.cpp
 endif
 
