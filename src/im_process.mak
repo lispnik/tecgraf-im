@@ -11,7 +11,7 @@ SRC = \
     im_effects.cpp         im_morphology_bin.cpp   im_tonegamut.cpp  \
     im_canny.cpp           im_distance.cpp         im_analyze.cpp    \
     im_kernel.cpp          im_remotesens.cpp       im_point.cpp      \
-    im_process_counter.cpp
+    im_process_counter.cpp im_binary.cpp
 SRC := $(addprefix process/, $(SRC))
 
 SRC += im_convertbitmap.cpp im_convertcolor.cpp im_converttype.cpp

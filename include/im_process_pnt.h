@@ -971,6 +971,15 @@ void imProcessSliceThreshold(const imImage* src_image, imImage* dst_image, doubl
 * \ingroup threshold */
 void imProcessThresholdColor(const imImage* src_image, imImage* dst_image, double* src_color, double tol);
 
+/** Threshold using a saturation minimum. \n
+* Supports only IM_RGB+IM_BYTE as source.
+*
+* \verbatim im.ProcessThresholdSaturation(src_image: imImage, dst_image: imImage, S_min: number) [in Lua 5] \endverbatim
+* \verbatim im.ProcessThresholdSaturationNew(src_image: imImage, S_min: number) -> new_image: imImage [in Lua 5] \endverbatim
+* \ingroup threshold */
+void imProcessThresholdSaturation(imImage* src_image, imImage* dst_image, double S_min);
+
+
 
 /** \defgroup effects Special Effects
  * \par

@@ -33,11 +33,9 @@
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    
   </ImportGroup>
   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
@@ -105,6 +103,7 @@
     <ClCompile Include="..\src\process\im_analyze.cpp" />
     <ClCompile Include="..\src\process\im_arithmetic_bin.cpp" />
     <ClCompile Include="..\src\process\im_arithmetic_un.cpp" />
+    <ClCompile Include="..\src\process\im_binary.cpp" />
     <ClCompile Include="..\src\process\im_canny.cpp" />
     <ClCompile Include="..\src\process\im_color.cpp" />
     <ClCompile Include="..\src\im_convertbitmap.cpp" />

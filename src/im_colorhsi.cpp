@@ -265,3 +265,96 @@ void imColorHSI2RGBbyte(double h, double s, double i, unsigned char *r, unsigned
   *g = imColorQuantize(fg, (imbyte)0, (imbyte)255);
   *b = imColorQuantize(fb, (imbyte)0, (imbyte)255);
 }
+
+double imColorSaturation(double R, double G, double B)
+{
+  double S;
+
+  if (R == B && R == G)
+    S = 0.0;  /* by definition */
+  else
+  {
+    double v, u;
+
+    /* Parametric equations */
+    v = R - (G + B) / 2.0;
+    u = (G - B) * (sqrt3 / 2.0);
+
+    S = sqrt(v*v + u * u);  /* s is between 0-1, it is linear in the cube and it is in u,v space. */
+  }
+
+  return S;
+}
+
+double imColorSaturationByte(imbyte r, imbyte g, imbyte b)
+{
+  double S;
+
+  if (r == b && r == g)
+    S = 0.0;  /* by definition */
+  else
+  {
+    double R = imColorReconstruct(r, (imbyte)0, (imbyte)255);
+    double G = imColorReconstruct(g, (imbyte)0, (imbyte)255);
+    double B = imColorReconstruct(b, (imbyte)0, (imbyte)255);
+
+    S = imColorSaturation(R, G, B);
+  }
+
+  return S;
+}
+
+double imColorIntensity(double R, double G, double B)
+{
+  return (R + G + B) / 3.0;   /* already normalized to 0-1 */
+}
+
+double imColorIntensityByte(imbyte r, imbyte g, imbyte b)
+{
+  double R = imColorReconstruct(r, (imbyte)0, (imbyte)255);
+  double G = imColorReconstruct(g, (imbyte)0, (imbyte)255);
+  double B = imColorReconstruct(b, (imbyte)0, (imbyte)255);
+
+  return imColorIntensity(R, G, B);
+}
+
+double imColorHue(double R, double G, double B)
+{
+  double H;
+
+  if (R == B && R == G)
+    H = 360.0;  /* by definition */
+  else
+  {
+    double v, u;
+
+    /* Parametric equations */
+    v = R - (G + B) / 2.0;
+    u = (G - B) * (sqrt3 / 2.0);
+
+    H = atan2(u, v);
+    H = iColorNormHue(H);
+
+    H = H * rad2deg;
+  }
+
+  return H;
+}
+
+double imColorHueByte(imbyte r, imbyte g, imbyte b)
+{
+  double H;
+
+  if (r == b && r == g)
+    H = 0.0;  /* by definition */
+  else
+  {
+    double R = imColorReconstruct(r, (imbyte)0, (imbyte)255);
+    double G = imColorReconstruct(g, (imbyte)0, (imbyte)255);
+    double B = imColorReconstruct(b, (imbyte)0, (imbyte)255);
+
+    H = imColorHue(R, G, B);
+  }
+
+  return H;
+}

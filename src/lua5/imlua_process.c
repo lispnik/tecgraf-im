@@ -1241,9 +1241,9 @@ static int imluaProcessBinMorphOutline (lua_State *L)
 }
 
 /*****************************************************************************\
- im.ProcessBinMorphThin
+ im.ProcessBinThinNhMaps
 \*****************************************************************************/
-static int imluaProcessBinMorphThin (lua_State *L)
+static int imluaProcessBinThinNhMaps (lua_State *L)
 {
   imImage *src_image = imlua_checkimage(L, 1);
   imImage *dst_image = imlua_checkimage(L, 2);
@@ -1251,10 +1251,21 @@ static int imluaProcessBinMorphThin (lua_State *L)
   imlua_checkcolorspace(L, 1, src_image, IM_BINARY);
   imlua_match(L, src_image, dst_image);
 
-  lua_pushboolean(L, imProcessBinMorphThin(src_image, dst_image));
+  lua_pushboolean(L, imProcessBinThinNhMaps(src_image, dst_image));
   return 1;
 }
 
+static int imluaProcessBinThinZhangSuen(lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+
+  imlua_checkcolorspace(L, 1, src_image, IM_BINARY);
+  imlua_match(L, src_image, dst_image);
+
+  lua_pushboolean(L, imProcessBinThinZhangSuen(src_image, dst_image));
+  return 1;
+}
 
 
 /*****************************************************************************\
@@ -3661,6 +3672,20 @@ static int imluaProcessThresholdColor(lua_State *L)
   return 0;
 }
 
+static int imluaProcessThresholdSaturation(lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+  double S_min = luaL_checknumber(L, 3);
+
+  imlua_checktype(L, 1, src_image, IM_RGB, IM_BYTE);
+  imlua_checkcolorspace(L, 2, dst_image, IM_BINARY);
+  imlua_matchsize(L, src_image, dst_image);
+
+  imProcessThresholdSaturation(src_image, dst_image, S_min);
+  return 0;
+}
+
 
 /*****************************************************************************\
  Special Effects
@@ -3822,7 +3847,8 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessBinMorphOpen", imluaProcessBinMorphOpen},
   {"ProcessBinMorphClose", imluaProcessBinMorphClose},
   {"ProcessBinMorphOutline", imluaProcessBinMorphOutline},
-  {"ProcessBinMorphThin", imluaProcessBinMorphThin},
+  {"ProcessBinThinNhMaps", imluaProcessBinThinNhMaps},
+  {"ProcessBinThinZhangSuen", imluaProcessBinThinZhangSuen},
 
   {"ProcessMedianConvolve", imluaProcessMedianConvolve},
   {"ProcessRangeConvolve", imluaProcessRangeConvolve},
@@ -3940,8 +3966,9 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessMinMaxThreshold", imluaProcessMinMaxThreshold},
   {"ProcessLocalMaxThresEstimate", imluaProcessLocalMaxThresEstimate},
   {"ProcessSliceThreshold", imluaProcessSliceThreshold},
-  { "ProcessThresholdColor", imluaProcessThresholdColor },
-  
+  {"ProcessThresholdColor", imluaProcessThresholdColor },
+  {"ProcessThresholdSaturation", imluaProcessThresholdSaturation },
+
   {"ProcessPixelate", imluaProcessPixelate},
   {"ProcessPosterize", imluaProcessPosterize},
   {"ProcessBinaryMask", imluaProcessBinaryMask},

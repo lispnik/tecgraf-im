@@ -75,7 +75,8 @@ EXPORTS
   imProcessPixelate
   imProcessArithmeticConstOp
   imProcessArithmeticOp
-  imProcessBinMorphThin
+  imProcessBinThinNhMaps
+  imProcessBinThinZhangSuen
   imProcessBitMask
   imProcessBitPlane
   imProcessBitwiseOp
@@ -151,6 +152,7 @@ EXPORTS
   imAnalyzeMeasurePerimArea
   imProcessSliceThreshold
   imProcessThresholdColor
+  imProcessThresholdSaturation
   imProcessRenderGrid
   imProcessRenderChessboard
   imProcessRenderFloodFill

@@ -95,6 +95,9 @@
     <ClCompile Include="..\src\process\im_tonegamut.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\process\im_binary.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\src\im_process.def">

@@ -215,6 +215,12 @@ EXPORTS
   imColorHSI2RGBbyte
   imColorRGB2HSI
   imColorRGB2HSIbyte
+  imColorHue
+  imColorHueByte
+  imColorIntensity
+  imColorIntensityByte
+  imColorSaturation
+  imColorSaturationByte
   imEncodeColor
   imDecodeColor
   imImageInfo

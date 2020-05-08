@@ -8,6 +8,7 @@
 #include <im.h>
 #include <im_util.h>
 #include <im_math_op.h>
+#include <im_colorhsi.h>
 
 #include "im_process_counter.h"
 #include "im_process_pnt.h"
@@ -19,6 +20,31 @@
 #include <string.h>
 #include <math.h>
 
+
+void imProcessThresholdSaturation(imImage* src_image, imImage* dst_image, double S_min)
+{
+  imbyte *src_red = (imbyte*)src_image->data[0],
+    *src_green = (imbyte*)src_image->data[1],
+    *src_blue = (imbyte*)src_image->data[2];
+  imbyte *dst_map = (imbyte*)dst_image->data[0];
+  int count = src_image->count;
+  double S;
+
+  for (int i = 0; i < count; i++)
+  {
+    if (src_red[i] == src_green[i] && src_red[i] == src_blue[i])
+      dst_map[i] = 0;
+    else
+    {
+      S = imColorSaturationByte(src_red[i], src_green[i], src_blue[i]);
+
+      if (S < S_min)
+        dst_map[i] = 0;
+      else
+        dst_map[i] = 1;
+    }
+  }
+}
 
 template <class T, class S>
 static void DoThresholdColor(T *src_data, imbyte *dst_data, int count, int depth, double* src_color, S tol)
