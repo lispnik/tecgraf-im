@@ -38,7 +38,7 @@ void imProcessThresholdSaturation(imImage* src_image, imImage* dst_image, double
     {
       S = imColorSaturationByte(src_red[i], src_green[i], src_blue[i]);
 
-      if (S < S_min)
+      if (S <= S_min)
         dst_map[i] = 0;
       else
         dst_map[i] = 1;
