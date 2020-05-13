@@ -257,6 +257,7 @@ namespace im
 
     void IncRef() 
     {
+      if (!im_image) return;
       int image_ref = GetAttribInteger("_IMAGE_REF");
       image_ref++;
       SetAttribInteger("_IMAGE_REF", IM_INT, image_ref); 
@@ -279,14 +280,16 @@ namespace im
     }
     Image(const Image& src_image, int width, int height, int color_space, int data_type) {
       im_image = imImageCreateBased(src_image.im_image, width, height, color_space, data_type);
-      IncRef(); 
+      if (im_image)
+        IncRef();
     }
     Image(const char* file_name, int index, int &error, bool as_bitmap) {
       if (as_bitmap)
         im_image = imFileImageLoad(file_name, index, &error);
       else
         im_image = imFileImageLoadBitmap(file_name, index, &error);
-      IncRef(); 
+      if (im_image)
+        IncRef(); 
     }
     Image(const Image& ref_image) {
       im_image = ref_image.im_image;
