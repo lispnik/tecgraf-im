@@ -17,6 +17,7 @@
 #include "jpc/jpc_enc.h"
 #include "jp2/jp2_cod.h"
 
+
 extern "C" 
 {
   /* implemented in jas_binfile.c */
@@ -139,6 +140,8 @@ public:
   int CanWrite(const char* compression, int color_mode, int data_type) const;
 };
 
+#ifndef JASPER_2
+
 static const char* ijp2_message = NULL;
 static int ijp2_abort = 0;
 static int ijp2_counter = -1;
@@ -161,14 +164,17 @@ static int iJP2AbortProc(void)
 {
   return ijp2_abort;
 }
+#endif
 
 void imFormatRegisterJP2(void)
 {
   // Jasper library initialization
   jas_init();
 
+#ifndef JASPER_2
   jas_set_progress_proc((jas_progress_proc_t)iJP2ProgressProc);
   jas_set_test_abort_proc((jas_test_abort_proc_t)iJP2AbortProc);
+#endif
   
   imFormatRegister(new imFormatJP2());
 }
@@ -231,11 +237,15 @@ int imFileFormatJP2::ReadImageInfo(int index)
   (void)index;
 
   // The counter is started because in Jasper all image reading is done here. BAD!
+#ifndef JASPER_2
   ijp2_counter = this->counter;
   ijp2_abort = 0;
   ijp2_message = "Reading JP2...";
+#endif
   this->image = jas_image_decode(this->stream, this->fmtid, 0);
+#ifndef JASPER_2
   ijp2_counter = -1;
+#endif
   if (!this->image)
     return IM_ERR_ACCESS;
 
@@ -281,7 +291,8 @@ int imFileFormatJP2::ReadImageInfo(int index)
 
   this->file_color_mode |= IM_TOPDOWN;
 
-  if (image->metadata.count > 0) 
+#ifndef JASPER_2
+  if (image->metadata.count > 0)
   {
     imAttribTable* attrib_table = AttribTable();
     
@@ -295,6 +306,7 @@ int imFileFormatJP2::ReadImageInfo(int index)
     if (metabox->size>0 && metabox->buf) 
       attrib_table->Set("XMLPacket", IM_BYTE, metabox->size, metabox->buf);
   }
+#endif
 
   return IM_ERR_NONE;
 }
@@ -357,7 +369,8 @@ int imFileFormatJP2::WriteImageInfo()
   if (!this->image)
     return IM_ERR_DATA;
 
-  if (this->image->metadata.count > 0) 
+#ifndef JASPER_2
+  if (this->image->metadata.count > 0)
   {
     const void* data;
     int size;
@@ -383,6 +396,7 @@ int imFileFormatJP2::WriteImageInfo()
       memcpy(metabox->id, xmp_uuid, sizeof(xmp_uuid));
     }
   }
+#endif
 
   return IM_ERR_NONE;
 }
@@ -471,12 +485,16 @@ int imFileFormatJP2::WriteImageData(void* data)
   if (ratio)
     sprintf(outopts, "rate=%g", (double)(1.0 / *ratio));
 
+#ifndef JASPER_2
   // The counter continuous because in Jasper all image writing is done here. BAD!
   ijp2_counter = this->counter;
   ijp2_abort = 0;
   ijp2_message = NULL;  /* other counts */
+#endif
   int err = jas_image_encode(image, stream, 0 /*JP2 format always */, outopts);
+#ifndef JASPER_2
   ijp2_counter = -1;
+#endif
   if (err)
     return IM_ERR_ACCESS;
 

@@ -2,6 +2,17 @@ PROJNAME = im
 LIBNAME = im_jp2
 OPT = YES
 
+# GeoJasper support only available for Jasper version 1
+# GeoJasPer 1.4.0
+# Copyright (c) 2003-2007 Dmitry V. Fedorov.
+# http://www.dimin.net/software/geojasper/
+
+ifdef USE_JASPER1                                       
+  JASPER = libjasper
+else
+  JASPER = libjasper2
+endif
+
 SRCJP2 =  \
     base/jas_cm.c      base/jas_icc.c      base/jas_init.c    base/jas_stream.c  base/jas_version.c \
     base/jas_debug.c   base/jas_iccdata.c  base/jas_malloc.c  base/jas_string.c  base/jas_tmr.c \
@@ -11,11 +22,11 @@ SRCJP2 =  \
     jpc/jpc_cs.c   jpc/jpc_mct.c    jpc/jpc_qmfb.c   jpc/jpc_t2cod.c  jpc/jpc_tsfb.c    \
     jpc/jpc_dec.c  jpc/jpc_mqcod.c  jpc/jpc_t1cod.c  jpc/jpc_t2dec.c  jpc/jpc_util.c    \
     jpc/jpc_enc.c  jpc/jpc_mqdec.c  jpc/jpc_t1dec.c  jpc/jpc_t2enc.c
-SRCJP2  := $(addprefix libjasper/, $(SRCJP2))
+SRCJP2  := $(addprefix $(JASPER)/, $(SRCJP2))
 
 SRC = jas_binfile.c im_format_jp2.cpp $(SRCJP2)
-                                       
-INCLUDES = libjasper
+
+INCLUDES = $(JASPER)
 
 DEFINES  = EXCLUDE_JPG_SUPPORT EXCLUDE_MIF_SUPPORT EXCLUDE_PNM_SUPPORT \
            EXCLUDE_BMP_SUPPORT EXCLUDE_PGX_SUPPORT EXCLUDE_RAS_SUPPORT \
