@@ -31,7 +31,7 @@ imFile* imFileOpenRaw(const char* file_name, int *error)
 
   imFileClear(ifileformat);
 
-  ifileformat->attrib_table = new imAttribTable(599);
+  ifileformat->attributes_table = new imAttribTable(599);
 
   ifileformat->counter = imCounterBegin(file_name);
 
@@ -57,7 +57,7 @@ imFile* imFileNewRaw(const char* file_name, int *error)
   ifileformat->image_count = 0;
   ifileformat->compression[0] = 0;
 
-  ifileformat->attrib_table = new imAttribTable(101);
+  ifileformat->attributes_table = new imAttribTable(101);
 
   ifileformat->counter = imCounterBegin(file_name);
 

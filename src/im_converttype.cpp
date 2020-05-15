@@ -716,7 +716,7 @@ int imConvertDataType(const imImage* src_image, imImage* dst_image, int cpx2real
 #endif
   imCounterTotal(counter, counter_total, "Converting...");
 
-  imAttribTable* attrib_table = (imAttribTable*)(src_image->attrib_table);
+  imAttribTable* attrib_table = (imAttribTable*)(src_image->attributes_table);
 
   switch(src_image->data_type)
   {

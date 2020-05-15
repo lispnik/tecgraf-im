@@ -122,7 +122,7 @@ imImage* imImageInit(int width, int height, int color_mode, int data_type, void*
     image->palette_count = 0;
   }
 
-  image->attrib_table = new imAttribTable(599);
+  image->attributes_table = new imAttribTable(599);
 
   return image;
 }
@@ -247,7 +247,7 @@ void imImageDestroy(imImage* image)
 {
   assert(image);
 
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   delete attrib_table;
 
   if (image->data[0])
@@ -408,7 +408,7 @@ void imImageSetAttribute(const imImage* image, const char* attrib, int data_type
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   if (data)
   {
     if (count == -1 && data_type == IM_BYTE) // Data is zero terminated like a string
@@ -426,7 +426,7 @@ void imImageSetAttribInteger(const imImage* image, const char* attrib, int data_
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   attrib_table->SetInteger(attrib, data_type, value);
 }
 
@@ -434,7 +434,7 @@ void imImageSetAttribReal(const imImage* image, const char* attrib, int data_typ
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   attrib_table->SetReal(attrib, data_type, value);
 }
 
@@ -442,7 +442,7 @@ void imImageSetAttribString(const imImage* image, const char* attrib, const char
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   attrib_table->SetString(attrib, value);
 }
 
@@ -450,7 +450,7 @@ const void* imImageGetAttribute(const imImage* image, const char* attrib, int *d
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   return attrib_table->Get(attrib, data_type, count);
 }
 
@@ -458,7 +458,7 @@ int imImageGetAttribInteger(const imImage* image, const char* attrib, int index)
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   return attrib_table->GetInteger(attrib, index);
 }
 
@@ -466,7 +466,7 @@ double imImageGetAttribReal(const imImage* image, const char* attrib, int index)
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   return attrib_table->GetReal(attrib, index);
 }
 
@@ -474,7 +474,7 @@ const char* imImageGetAttribString(const imImage* image, const char* attrib)
 {
   assert(image);
   assert(attrib);
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   return attrib_table->GetString(attrib);
 }
 
@@ -504,7 +504,7 @@ void imImageCopyAttributes(const imImage* src_image, imImage* dst_image)
 
   iCopyPalette(src_image, dst_image);
 
-  iAttributeTableCopy(src_image->attrib_table, dst_image->attrib_table);
+  iAttributeTableCopy(src_image->attributes_table, dst_image->attributes_table);
 }
 
 static void iAttributeTableMerge(const void* src_attrib_table, void* dst_attrib_table)
@@ -521,7 +521,7 @@ void imImageMergeAttributes(const imImage* src_image, imImage* dst_image)
 
   iCopyPalette(src_image, dst_image);
 
-  iAttributeTableMerge(src_image->attrib_table, dst_image->attrib_table);
+  iAttributeTableMerge(src_image->attributes_table, dst_image->attributes_table);
 }
 
 static int iAttribCB(void* user_data, int index, const char* name, int data_type, int count, const void* data)
@@ -539,7 +539,7 @@ void imImageGetAttributeList(const imImage* image, char** attrib, int *attrib_co
   assert(image);
   assert(attrib_count);
 
-  imAttribTable* attrib_table = (imAttribTable*)image->attrib_table;
+  imAttribTable* attrib_table = (imAttribTable*)image->attributes_table;
   *attrib_count = attrib_table->Count();
 
   if (attrib) attrib_table->ForEach((void*)attrib, iAttribCB);
@@ -672,7 +672,7 @@ void imImageMakeGray(imImage *image)
 
 static void iLoadImageData(imFile* ifile, imImage* image, int *error, int bitmap)
 {
-  iAttributeTableCopy(ifile->attrib_table, image->attrib_table);
+  iAttributeTableCopy(ifile->attributes_table, image->attributes_table);
   *error = imFileReadImageData(ifile, image->data[0], bitmap, image->has_alpha);
   if (image->color_space == IM_MAP)
     imFileGetPalette(ifile, image->palette, &image->palette_count);
@@ -811,7 +811,7 @@ int imFileSaveImage(imFile* ifile, const imImage* image)
   if (image->color_space == IM_MAP)
     imFileSetPalette(ifile, image->palette, image->palette_count);
 
-  iAttributeTableCopy(image->attrib_table, ifile->attrib_table);
+  iAttributeTableCopy(image->attributes_table, ifile->attributes_table);
 
   int color_mode = image->color_space;
   if (image->has_alpha)
