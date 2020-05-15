@@ -11,3 +11,11 @@
 #undef snprintf
 #endif
 #endif
+
+/* Others:
+
+- removed inline from code 
+- replaced ssize_t with size_t
+- removed , in last enum at *-tag.h
+
+*/
