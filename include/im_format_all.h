@@ -20,11 +20,11 @@ extern "C" {
  * \par
  * Copyright (c) 1986-1988, 1992 by Adobe Systems Incorporated. \n
  * Originally created by a group of companies,
- * the Aldus Corporation keeped the copyright until Aldus was aquired by Adobe. \n
+ * the Aldus Corporation kept the copyright until Aldus was acquired by Adobe. \n
  * TIFF Revision 6.0 Final — June 3, 1992 \n
  * http://www.adobe.com/Support/TechNotes.html
  * \par
- * Access to the TIFF file format uses libTIFF version 4.0.3 \n
+ * Access to the TIFF file format uses libTIFF version 4.0.6 \n
  * http://www.remotesensing.org/libtiff/                     \n
  * Copyright (c) 1988-1997 Sam Leffler                      \n
  * Copyright (c) 1991-1997 Silicon Graphics, Inc.           \n
