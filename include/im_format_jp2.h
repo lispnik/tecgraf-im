@@ -57,6 +57,8 @@ extern "C" {
       New file jas_binfile.c
       Changed base/jas_stream.c to export jas_stream_create and jas_stream_initbuf.
       The counter is for memory transfer only.
+      These changes can be ignored when using an external libJasper distribution,
+      but in this case the imBinFile global features will not work.
 \endverbatim
  * \ingroup format */
  

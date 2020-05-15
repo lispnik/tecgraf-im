@@ -18,11 +18,22 @@
 #include "jp2/jp2_cod.h"
 
 
+#ifdef JAS_BINFILE
 extern "C" 
 {
   /* implemented in jas_binfile.c */
-  jas_stream_t *jas_binfile_open(const char *file_name, int is_new);
+  jas_stream_t* jas_binfile_open(const char *file_name, int is_new);
 }
+#else
+static jas_stream_t* jas_binfile_open(const char *file_name, int is_new)
+{
+  if (is_new)
+    return jas_stream_fopen(file_name, "wb");
+  else
+    return jas_stream_fopen(file_name, "rb");
+}
+#endif
+
 
 jas_seqent_t iJP2Bits2Int(jas_seqent_t v, int prec, int sgnd)
 {

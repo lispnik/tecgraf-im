@@ -24,13 +24,14 @@ SRCJP2 =  \
     jpc/jpc_enc.c  jpc/jpc_mqdec.c  jpc/jpc_t1dec.c  jpc/jpc_t2enc.c
 SRCJP2  := $(addprefix $(JASPER)/, $(SRCJP2))
 
-SRC = jas_binfile.c im_format_jp2.cpp $(SRCJP2)
+SRC = im_format_jp2.cpp
 
+# NOT necessary if using another distribution
+SRC += jas_binfile.c $(SRCJP2)
 INCLUDES = $(JASPER)
-
 DEFINES  = EXCLUDE_JPG_SUPPORT EXCLUDE_MIF_SUPPORT EXCLUDE_PNM_SUPPORT \
            EXCLUDE_BMP_SUPPORT EXCLUDE_PGX_SUPPORT EXCLUDE_RAS_SUPPORT \
-           EXCLUDE_TIFF_SUPPORT JAS_GEO_OMIT_PRINTING_CODE
+           EXCLUDE_TIFF_SUPPORT JAS_GEO_OMIT_PRINTING_CODE JAS_BINFILE
 
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
   ifneq ($(findstring owc1, $(TEC_UNAME)), )
