@@ -21,7 +21,7 @@
    packages produce RGBA files but don't mark the alpha properly. */
 #define DEFAULT_EXTRASAMPLE_AS_ALPHA  /* IMLIB */
 
-/* enable deferred strip/tile offset/size loading (experimental) */
+/* enable deferred strip/tile offset/size loading */
 #undef DEFER_STRILE_LOAD
 
 /* Define to 1 if you have the <assert.h> header file. */
@@ -33,8 +33,8 @@
 /* Define to 1 if you have the <fcntl.h> header file. */
 #define HAVE_FCNTL_H    /* IMLIB */
 
-/* Define to 1 if you have the `floor' function. */
-#define HAVE_FLOOR      /* IMLIB */
+/* Define to 1 if fseeko (and presumably ftello) exists and is declared. */
+#undef HAVE_FSEEKO
 
 /* Define to 1 if you have the `getopt' function. */
 #undef HAVE_GETOPT
@@ -51,18 +51,9 @@
 /* Define to 1 if you have the <GL/gl.h> header file. */
 #undef HAVE_GL_GL_H
 
-/* Define as 0 or 1 according to the floating point format supported by the
+/* Define as 0 or 1 according to the floating point format suported by the
    machine */
 #define HAVE_IEEEFP     /* IMLIB */
-
-/* Define to 1 if the system has the type `int16'. */
-#undef HAVE_INT16
-
-/* Define to 1 if the system has the type `int32'. */
-#undef HAVE_INT32
-
-/* Define to 1 if the system has the type `int8'. */
-#undef HAVE_INT8
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
@@ -70,32 +61,14 @@
 /* Define to 1 if you have the <io.h> header file. */
 #undef HAVE_IO_H
 
-/* Define to 1 if you have the `isascii' function. */
-#undef HAVE_ISASCII
-
 /* Define to 1 if you have the `jbg_newlen' function. */
 #undef HAVE_JBG_NEWLEN
 
 /* Define to 1 if you have the `lfind' function. */
 #undef HAVE_LFIND
 
-/* Define to 1 if you have the `m' library (-lm). */
-#undef HAVE_LIBM
-
-/* Define to 1 if you have the <limits.h> header file. */
-#undef HAVE_LIMITS_H
-
-/* Define to 1 if you have the <malloc.h> header file. */
-#undef HAVE_MALLOC_H
-
-/* Define to 1 if you have the `memmove' function. */
-#undef HAVE_MEMMOVE
-
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
-
-/* Define to 1 if you have the `memset' function. */
-#undef HAVE_MEMSET
 
 /* Define to 1 if you have the `mmap' function. */
 #undef HAVE_MMAP
@@ -106,9 +79,6 @@
 /* Define to 1 if you have the <OpenGL/gl.h> header file. */
 #undef HAVE_OPENGL_GL_H
 
-/* Define to 1 if you have the `pow' function. */
-#undef HAVE_POW
-
 /* Define if you have POSIX threads libraries and header files. */
 #undef HAVE_PTHREAD
 
@@ -118,8 +88,8 @@
 /* Define to 1 if you have the `setmode' function. */
 #undef HAVE_SETMODE
 
-/* Define to 1 if you have the `sqrt' function. */
-#undef HAVE_SQRT
+/* Define to 1 if you have the `snprintf' function. */
+#define HAVE_SNPRINTF 1  /* IMLIB */
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
@@ -130,23 +100,17 @@
 /* Define to 1 if you have the `strcasecmp' function. */
 #undef HAVE_STRCASECMP
 
-/* Define to 1 if you have the `strchr' function. */
-#undef HAVE_STRCHR
-
 /* Define to 1 if you have the <strings.h> header file. */
 #undef HAVE_STRINGS_H
 
 /* Define to 1 if you have the <string.h> header file. */
 #define HAVE_STRING_H    /* IMLIB */
 
-/* Define to 1 if you have the `strrchr' function. */
-#undef HAVE_STRRCHR
-
-/* Define to 1 if you have the `strstr' function. */
-#undef HAVE_STRSTR
-
 /* Define to 1 if you have the `strtol' function. */
 #undef HAVE_STRTOL
+
+/* Define to 1 if you have the `strtoll' function. */
+#undef HAVE_STRTOLL
 
 /* Define to 1 if you have the `strtoul' function. */
 #undef HAVE_STRTOUL
@@ -156,9 +120,6 @@
 
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #undef HAVE_SYS_STAT_H
-
-/* Define to 1 if you have the <sys/time.h> header file. */
-#undef HAVE_SYS_TIME_H
 
 /* Define to 1 if you have the <sys/types.h> header file. */
 #define HAVE_SYS_TYPES_H   /* IMLIB */
@@ -194,8 +155,7 @@
 /* Support LogLuv high dynamic range encoding */
 #define LOGLUV_SUPPORT   /* IMLIB */
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #undef LT_OBJDIR
 
 /* Support LZMA2 compression */
@@ -209,9 +169,6 @@
 
 /* Support NeXT 2-bit RLE algorithm */
 #define NEXT_SUPPORT     /* IMLIB */
-
-/* Define to 1 if your C compiler doesn't accept -c and -o together. */
-#undef NO_MINUS_C_MINUS_O
 
 /* Support Old JPEG compresson (read-only) */
 #define OJPEG_SUPPORT    /* IMLIB */
@@ -256,8 +213,8 @@
 /* The size of `signed long long', as computed by sizeof. */
 #undef SIZEOF_SIGNED_LONG_LONG
 
-/* The size of `signed short', as computed by sizeof. */
-#undef SIZEOF_SIGNED_SHORT
+/* The size of `size_t', as computed by sizeof. */
+#undef SIZEOF_SIZE_T
 
 /* The size of `unsigned char *', as computed by sizeof. */
 #undef SIZEOF_UNSIGNED_CHAR_P
@@ -270,9 +227,6 @@
 
 /* The size of `unsigned long long', as computed by sizeof. */
 #undef SIZEOF_UNSIGNED_LONG_LONG
-
-/* The size of `unsigned short', as computed by sizeof. */
-#undef SIZEOF_UNSIGNED_SHORT
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
@@ -318,6 +272,12 @@
 /* Pointer difference type */
 #undef TIFF_PTRDIFF_T
 
+/* Size type formatter */
+#undef TIFF_SIZE_FORMAT
+
+/* Unsigned size type */
+#undef TIFF_SIZE_T
+
 /* Signed size type formatter */
 #define TIFF_SSIZE_FORMAT "%Iu"               /* IMLIB */
 
@@ -358,6 +318,9 @@
 /* Version number of package */
 #undef VERSION
 
+/* Support webp compression */
+#undef WEBP_SUPPORT
+
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */
 #if defined AC_APPLE_UNIVERSAL_BUILD
@@ -377,6 +340,9 @@
 /* Support Deflate compression */
 #define ZIP_SUPPORT         /* IMLIB */
 
+/* Support zstd compression */
+#undef ZSTD_SUPPORT
+
 /* Enable large inode numbers on Mac OS X 10.5.  */
 #ifndef _DARWIN_USE_64_BIT_INODE
 # define _DARWIN_USE_64_BIT_INODE 1
@@ -384,6 +350,9 @@
 
 /* Number of bits in a file offset, on hosts where this is settable. */
 #undef _FILE_OFFSET_BITS
+
+/* Define to 1 to make fseeko visible on some hosts (e.g. glibc 2.2). */
+#undef _LARGEFILE_SOURCE
 
 /* Define for large files, on AIX-style hosts. */
 #undef _LARGE_FILES
@@ -394,7 +363,7 @@
 /* Define to `__inline__' or `__inline' if that's what the C compiler
    calls it, or to nothing if 'inline' is not supported under any name.  */
 #ifndef __cplusplus
-#define INLINE         /* IMLIB - used only in tif_fax3.c */
+/* #undef inline */        /* IMLIB - used only in tif_fax3.c */
 #endif
 
 /* Define to `long int' if <sys/types.h> does not define. */
@@ -405,5 +374,3 @@
 
 /* To avoid the inclusion of <windows.h> */
 #define AVOID_WIN32_FILEIO 1     /* IMLIB */
-
-#define HAVE_SNPRINTF 1     /* IMLIB */
