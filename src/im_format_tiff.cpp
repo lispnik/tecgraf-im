@@ -9,6 +9,7 @@
 #include "im_util.h"
 #include "im_format_all.h"
 #include "im_counter.h"
+#include "im_binfile.h"
 
 #include "tiffiop.h"
 
@@ -16,6 +17,85 @@
 #include <stdio.h>
 #include <string.h>
 #include <memory.h>
+
+
+static tmsize_t iTIFFReadProc(thandle_t fd, void* buf, tmsize_t size)
+{
+  imBinFile* file_bin = (imBinFile*)fd;
+  return imBinFileRead(file_bin, buf, (unsigned long)size, 1);
+}
+
+static tmsize_t iTIFFWriteProc(thandle_t fd, void* buf, tmsize_t size)
+{
+  imBinFile* file_bin = (imBinFile*)fd;
+  return imBinFileWrite(file_bin, buf, (unsigned long)size, 1);
+}
+
+static toff_t iTIFFSeekProc(thandle_t fd, toff_t off, int whence)
+{
+  imBinFile* file_bin = (imBinFile*)fd;
+  switch (whence)
+  {
+  case SEEK_SET:
+    imBinFileSeekTo(file_bin, (unsigned long)off);
+    break;
+  case SEEK_CUR:
+    imBinFileSeekOffset(file_bin, (unsigned long)off);
+    break;
+  case SEEK_END:
+    imBinFileSeekFrom(file_bin, (unsigned long)off);
+    break;
+  }
+
+  return imBinFileTell(file_bin);
+}
+
+static int iTIFFCloseProc(thandle_t fd)
+{
+  imBinFile* file_bin = (imBinFile*)fd;
+  imBinFileClose(file_bin);
+  return 0;
+}
+
+static toff_t iTIFFSizeProc(thandle_t fd)
+{
+  imBinFile* file_bin = (imBinFile*)fd;
+  return imBinFileSize(file_bin);
+}
+
+static int iTIFFMapProc(thandle_t fd, void** pbase, toff_t* psize)
+{
+  (void)fd; (void)pbase; (void)psize;
+  return (0);
+}
+
+static void iTIFFUnmapProc(thandle_t fd, void* base, toff_t size)
+{
+  (void)fd; (void)base; (void)size;
+}
+
+static TIFF* iTIFFOpen(const char* name, const char* mode)
+{
+  imBinFile* bin_file;
+  TIFF* tiff;
+
+  if (mode[0] == 'r')
+    bin_file = imBinFileOpen(name);
+  else
+    bin_file = imBinFileNew(name);
+
+  if (!bin_file)
+    return NULL;
+
+  tiff = TIFFClientOpen(name, mode, (thandle_t)bin_file, iTIFFReadProc, iTIFFWriteProc,
+                        iTIFFSeekProc, iTIFFCloseProc,
+                        iTIFFSizeProc, iTIFFMapProc,
+                        iTIFFUnmapProc);
+  if (!tiff)
+    imBinFileClose(bin_file);
+
+  return tiff;
+}
 
 //Used to debug TIFF loading and decoding
 //#define IM_TIFF_DEBUG_RGBA 1
@@ -405,11 +485,11 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
 
             if (fld->field_type == TIFF_ASCII && ((char*)data)[data_count-1] != 0)
             {
-              int i = data_count-1;
+              int j = data_count-1;
               char* p = (char*)data;
-              while (i > 0 && p[i] != 0)
-                i--;
-              if (i == 0)
+              while (j > 0 && p[j] != 0)
+                j--;
+              if (j == 0)
               {
                 if (fld->field_tag == TIFFTAG_DATETIME ||
 			              fld->field_tag == EXIFTAG_DATETIMEORIGINAL ||
@@ -419,11 +499,11 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
                       libTIIF does not returns the actual number os bytes read,
                       it returns the standard value of 20.
                       so we will try to find the actual string size, but we risk in a memory invalid access. */
-                  i = data_count;
-                  while (i < data_count+6 && p[i] != 0)
-                    i++;
-                  if (i < data_count+6)
-                    data_count = i+1;
+                  j = data_count;
+                  while (j < data_count+6 && p[j] != 0)
+                    j++;
+                  if (j < data_count+6)
+                    data_count = j+1;
                 }
                 else
                 {
@@ -434,7 +514,7 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
                 }
               }
               else
-                data_count = i;
+                data_count = j;
             }
 
             attrib_table->Set(fld->field_name, data_type, data_count, data);
@@ -646,7 +726,7 @@ void imFormatRegisterTIFF(void)
 
 int imFileFormatTIFF::Open(const char* file_name)
 {
-  this->tiff = TIFFOpen(file_name, "r");
+  this->tiff = iTIFFOpen(file_name, "r");
   if (this->tiff == NULL)
     return IM_ERR_FORMAT;
 
@@ -666,7 +746,7 @@ int imFileFormatTIFF::Open(const char* file_name)
 
 int imFileFormatTIFF::New(const char* file_name)
 {
-  this->tiff = TIFFOpen(file_name, "w");
+  this->tiff = iTIFFOpen(file_name, "w");
   if (this->tiff == NULL)
     return IM_ERR_OPEN;
 
@@ -848,7 +928,7 @@ int imFileFormatTIFF::ReadImageInfo(int index)
     this->v_subsample = ycbcrsubsampling[1];
 
     /* add space for the line buffer (this is more than necessary) */
-    this->line_buffer_extra = TIFFScanlineSize(this->tiff);
+    this->line_buffer_extra = (int)TIFFScanlineSize(this->tiff);
   }
 
   uint16 PlanarConfig = PLANARCONFIG_CONTIG;
@@ -878,7 +958,7 @@ int imFileFormatTIFF::ReadImageInfo(int index)
     this->extra_sample_size = (BitsPerSample*SamplesPerPixel + 7)/8;
 
     /* add space for the line buffer (this is more than necessary) */
-    this->line_buffer_extra = TIFFScanlineSize(this->tiff);
+    this->line_buffer_extra = (int)TIFFScanlineSize(this->tiff);
   }
 
   uint16 SampleFormat = SAMPLEFORMAT_UINT;
@@ -957,17 +1037,17 @@ int imFileFormatTIFF::ReadImageInfo(int index)
   uint16 *rmap, *gmap, *bmap; 
   if (TIFFGetField(this->tiff, TIFFTAG_COLORMAP, &rmap, &gmap, &bmap))
   {
-    long palette[256];
-    int palette_count = 1 << BitsPerSample;
+    long pal[256];
+    int pal_count = 1 << BitsPerSample;
 
-    for (int c = 0; c < palette_count; c++)
+    for (int c = 0; c < pal_count; c++)
     {
-      palette[c] = imColorEncode((unsigned char)(rmap[c] >> 8),
-                                 (unsigned char)(gmap[c] >> 8),
-                                 (unsigned char)(bmap[c] >> 8));
+      pal[c] = imColorEncode((unsigned char)(rmap[c] >> 8),
+                             (unsigned char)(gmap[c] >> 8),
+                             (unsigned char)(bmap[c] >> 8));
     }
 
-    imFileSetPalette(this, palette, palette_count);
+    imFileSetPalette(this, pal, pal_count);
   }
 
   if (TIFFIsTiled(this->tiff))
@@ -988,8 +1068,8 @@ int imFileFormatTIFF::ReadImageInfo(int index)
     this->tile_buf_count = (Width + tileWidth-1) / tileWidth;
     if (PlanarConfig == PLANARCONFIG_SEPARATE)
       this->tile_buf_count *= SamplesPerPixel;
-    this->tile_line_size = TIFFTileRowSize(this->tiff);
-    this->tile_line_raw_size = TIFFScanlineSize(this->tiff);
+    this->tile_line_size = (int)TIFFTileRowSize(this->tiff);
+    this->tile_line_raw_size = (int)TIFFScanlineSize(this->tiff);
     this->tile_start_lin = 0;
 
     this->tile_buf = (void**)malloc(sizeof(void*)*this->tile_buf_count);
@@ -1324,7 +1404,7 @@ static void iTIFFLabFix(void* line_buffer, int width, int data_type, int is_new)
   //TODO: do NOT know how it is encoded for other data types.
 }
 
-int imFileFormatTIFF::ReadTileline(void* line_buffer, int lin, int plane)
+int imFileFormatTIFF::ReadTileline(void* buffer, int lin, int plane)
 {
   int t;
 
@@ -1359,8 +1439,8 @@ int imFileFormatTIFF::ReadTileline(void* line_buffer, int lin, int plane)
       line_size -= extra;
     }
 
-    memcpy(line_buffer, (imbyte*)(this->tile_buf[t]) + tile_line*this->tile_line_size, line_size);
-    line_buffer = (imbyte*)(line_buffer) + line_size;
+    memcpy(buffer, (imbyte*)(this->tile_buf[t]) + tile_line*this->tile_line_size, line_size);
+    buffer = (imbyte*)(buffer) + line_size;
   }
 
   return 1;

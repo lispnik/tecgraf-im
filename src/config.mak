@@ -28,22 +28,13 @@ SRCTIFF = \
     tif_dirread.c   tif_getimage.c   tif_predict.c   tif_version.c  \
     tif_write.c     tif_warning.c    tif_ojpeg.c     tif_lzma.c     \
     tif_jbig.c
-SRCTIFF  := $(addprefix libtiff/, $(SRCTIFF)) im_format_tiff.cpp
-INCLUDES += libtiff 
+SRCTIFF := $(addprefix libtiff/, $(SRCTIFF))
 
-ifneq ($(findstring Win, $(TEC_SYSNAME)), )
-  SRCPNG = \
-      png.c       pngget.c    pngread.c   pngrutil.c  pngwtran.c  \
-      pngerror.c  pngmem.c    pngrio.c    pngset.c    pngwio.c    \
-      pngpread.c  pngrtran.c  pngtrans.c  pngwrite.c  pngwutil.c
-  SRCPNG := $(addprefix libpng/, $(SRCPNG)) im_format_png.cpp
-  INCLUDES += libpng
-else
-  # In Linux, use the installed files in the system libpng-dev
-  # If using GTK, then must use the same libpng they use
-  INCLUDES += /usr/include/libpng
-  SRCPNG := im_format_png.cpp
-endif
+SRCPNG = \
+    png.c       pngget.c    pngread.c   pngrutil.c  pngwtran.c  \
+    pngerror.c  pngmem.c    pngrio.c    pngset.c    pngwio.c    \
+    pngpread.c  pngrtran.c  pngtrans.c  pngwrite.c  pngwutil.c
+SRCPNG := $(addprefix libpng/, $(SRCPNG))
 
 SRCJPEG = \
     jcapimin.c  jcmarker.c  jdapimin.c  jdinput.c   jdtrans.c   \
@@ -54,8 +45,7 @@ SRCJPEG = \
     jchuff.c    jcprepct.c  jdcolor.c   jidctflt.c  jutils.c    jdarith.c \
     jcinit.c    jcsample.c  jddctmgr.c  jdpostct.c  jidctfst.c  jaricom.c  \
     jcmainct.c  jctrans.c   jdhuff.c    jdsample.c  jidctint.c  jcarith.c
-SRCJPEG  := $(addprefix libjpeg/, $(SRCJPEG)) im_format_jpeg.cpp
-INCLUDES += libjpeg 
+SRCJPEG := $(addprefix libjpeg/, $(SRCJPEG))
 
 SRCEXIF = \
     fuji/exif-mnote-data-fuji.c  fuji/mnote-fuji-entry.c  fuji/mnote-fuji-tag.c                    \
@@ -65,7 +55,6 @@ SRCEXIF = \
     exif-byte-order.c  exif-entry.c  exif-utils.c    exif-format.c  exif-mnote-data.c              \
     exif-content.c  exif-ifd.c  exif-tag.c exif-data.c  exif-loader.c exif-log.c exif-mem.c
 SRCEXIF  := $(addprefix libexif/, $(SRCEXIF))
-INCLUDES += libexif
 
 SRCLZF = \
     lzf_c.c lzf_d.c
@@ -73,7 +62,7 @@ SRCLZF  := $(addprefix liblzf/, $(SRCLZF))
 INCLUDES += liblzf
 
 SRC = \
-    im_oldcolor.c         im_oldresize.c      tiff_binfile.c       im_converttype.cpp   \
+    im_oldcolor.c         im_oldresize.c      im_converttype.cpp   \
     im_attrib.cpp         im_format.cpp       im_format_tga.cpp    im_filebuffer.cpp    \
     im_bin.cpp            im_format_all.cpp   im_format_raw.cpp    im_convertopengl.cpp \
     im_binfile.cpp        im_format_sgi.cpp   im_datatype.cpp      im_format_pcx.cpp    \
@@ -83,7 +72,24 @@ SRC = \
     im_convertbitmap.cpp  im_format_led.cpp   im_counter.cpp       im_str.cpp           \
     im_convertcolor.cpp   im_fileraw.cpp      im_format_krn.cpp    im_compress.cpp      \
     im_file.cpp           im_old.cpp          im_format_pfm.cpp                         \
-    $(SRCJPEG) $(SRCTIFF) $(SRCPNG) $(SRCLZF)
+    im_format_tiff.cpp    im_format_png.cpp   im_format_jpeg.cpp                        \
+    $(SRCLZF)
+    
+# NOT necessary if using another distribution
+SRC += $(SRCTIFF) tiff_binfile.c
+INCLUDES += libtiff 
+
+SRC += $(SRCJPEG)
+INCLUDES += libjpeg 
+
+ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+  SRC += $(SRCPNG) 
+  INCLUDES += libpng
+else
+  # In Linux, use the installed files in the system (package libpng-dev)
+  # If using GTK, then must use the same libpng they use
+  INCLUDES += /usr/include/libpng
+endif
     
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
   SRC += im_sysfile_win32.cpp im_dib.cpp im_dibxbitmap.cpp
@@ -109,6 +115,7 @@ else
 endif
 
 ifdef USE_EXIF
+  INCLUDES += libexif
   SRC += $(SRCEXIF)    
   DEFINES += USE_EXIF
 endif  
