@@ -1,13 +1,13 @@
+/* essencial config.h for IM */
 
-/* Define to 1 if translation of program messages to the user's native
-   language is requested. */
-/* #undef ENABLE_NLS */
-
-/* The gettext domain we're using */
-#define GETTEXT_PACKAGE "libexif-9"
+#define GETTEXT_PACKAGE "libexif"
 
 #ifdef WIN32
-#define exif_snprintf _snprintf
-#else
-#define exif_snprintf snprintf
+#define snprintf _snprintf
+#if _MSC_VER >= 1900 /* IMLIB vc14 */
+#undef snprintf
+#endif
+#if __GNUC__ >= 6 /* IMLIB mingw6 */
+#undef snprintf
+#endif
 #endif
