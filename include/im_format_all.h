@@ -127,9 +127,9 @@ void imFormatRegisterTIFF(void);
  * Copyright (C) 1994-2020, Thomas G. Lane, Guido Vollbeding  \n
  *   from the Independent JPEG Group.
  * \par
- * Access to the EXIF attributes uses libEXIF version 0.6.20. \n
+ * Access to the EXIF attributes uses libEXIF version 0.6.21. \n
  * http://sourceforge.net/projects/libexif                    \n
- * Copyright (C) 2001-2010, Lutz Müller
+ * Copyright (C) 2001-2009, Lutz Müller et. al.
  *
  * \section Features
  *
@@ -159,7 +159,7 @@ void imFormatRegisterTIFF(void);
 
     Changes to libEXIF:
       new files config.h and _stdint.h
-      small fixes in exif-entry.c, exif-loader.c, exif-tag.c, mnote-fuji-tag.h and mnote-olympus-tag.h
+      small fixes to improve compilation. 
 
     Comments:
       Other APPx markers are ignored.
