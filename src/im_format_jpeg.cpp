@@ -257,32 +257,112 @@ static int iExifGetTagInfo(ExifTag tag, ExifFormat* format, unsigned long *compo
 }
 #endif
 
-/* libjpeg error handlers */
+/* libjpeg handlers */
 
-struct JPEGerror_mgr 
+struct iJPEGerror_mgr 
 {
   jpeg_error_mgr pub;  /* "public" fields */
   jmp_buf setjmp_buffer;      /* for return to caller */
 };
 
-static void JPEGerror_exit (j_common_ptr cinfo)
+static void iJPEGerror_exit (j_common_ptr cinfo)
 {
   /* cinfo->err really points to a my_error_mgr struct, so coerce pointer */
-  JPEGerror_mgr* err_mgr = (JPEGerror_mgr*)cinfo->err;
+  iJPEGerror_mgr* err_mgr = (iJPEGerror_mgr*)cinfo->err;
 
   /* Return control to the setjmp point */
   longjmp(err_mgr->setjmp_buffer, 1);
 }
 
-static void JPEGoutput_message (j_common_ptr cinfo)
+static void iJPEGoutput_message (j_common_ptr cinfo)
 {
   (void)cinfo;
 }
 
-static void JPEGemit_message (j_common_ptr cinfo, int msg_level)
+static void iJPEGemit_message (j_common_ptr cinfo, int msg_level)
 {
   (void)cinfo; (void)msg_level;
 }
+
+/* from jdatasrc.c */
+struct iJPEGsource_mgr
+{
+  struct jpeg_source_mgr pub;	/* public fields */
+  FILE * infile;		/* source stream */
+  JOCTET* buffer;		/* start of buffer */
+  boolean start_of_file;	/* have we gotten any data yet? */
+};
+
+#define INPUT_BUF_SIZE  4096
+
+static boolean iJPEGfill_input_buffer(j_decompress_ptr cinfo)
+{
+  iJPEGsource_mgr* src = (iJPEGsource_mgr*)cinfo->src;
+  size_t nbytes;
+
+  nbytes = (size_t)imBinFileRead((imBinFile*)src->infile, src->buffer, INPUT_BUF_SIZE, 1);
+
+  if (nbytes <= 0) 
+  {
+    if (src->start_of_file)	/* Treat empty input file as fatal error */
+      ERREXIT(cinfo, JERR_INPUT_EMPTY);
+    WARNMS(cinfo, JWRN_JPEG_EOF);
+    /* Insert a fake EOI marker */
+    src->buffer[0] = (JOCTET)0xFF;
+    src->buffer[1] = (JOCTET)JPEG_EOI;
+    nbytes = 2;
+  }
+
+  src->pub.next_input_byte = src->buffer;
+  src->pub.bytes_in_buffer = nbytes;
+  src->start_of_file = FALSE;
+
+  return TRUE;
+}
+
+/* from jdatadst.c */
+struct iJPEGdestination_mgr
+{
+  struct jpeg_destination_mgr pub; /* public fields */
+  FILE * outfile;		/* target stream */
+  JOCTET * buffer;		/* start of buffer */
+};
+
+#define OUTPUT_BUF_SIZE  4096	/* choose an efficiently fwrite'able size */
+
+static boolean iJPEGempty_output_buffer(j_compress_ptr cinfo)
+{
+  iJPEGdestination_mgr* dest = (iJPEGdestination_mgr*)cinfo->dest;
+
+  if ((size_t)imBinFileWrite((imBinFile*)dest->outfile, dest->buffer, OUTPUT_BUF_SIZE, 1) != (size_t)OUTPUT_BUF_SIZE)
+    ERREXIT(cinfo, JERR_FILE_WRITE);
+
+  dest->pub.next_output_byte = dest->buffer;
+  dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
+
+  return TRUE;
+}
+
+static void iJPEGterm_destination(j_compress_ptr cinfo)
+{
+  iJPEGdestination_mgr* dest = (iJPEGdestination_mgr*)cinfo->dest;
+  size_t datacount = OUTPUT_BUF_SIZE - dest->pub.free_in_buffer;
+
+  /* Write any data remaining in the buffer */
+  if (datacount > 0) 
+  {
+    if ((size_t)imBinFileWrite((imBinFile*)dest->outfile, dest->buffer, (unsigned long)datacount, 1) != (size_t)datacount)
+      ERREXIT(cinfo, JERR_FILE_WRITE);
+  }
+  
+  /* Make sure we wrote the output file OK */
+  if (imBinFileError((imBinFile*)dest->outfile))
+    ERREXIT(cinfo, JERR_FILE_WRITE);
+}
+
+
+/**********************************************************************************************/
+
 
 static const char* iJPEGCompTable[1] = 
 {
@@ -293,7 +373,7 @@ class imFileFormatJPEG: public imFileFormatBase
 {
   jpeg_decompress_struct dinfo;
   jpeg_compress_struct cinfo;
-  JPEGerror_mgr jerr;
+  iJPEGerror_mgr jerr;
 
   imBinFile* handle;
   int fix_adobe_cmyk;
@@ -364,9 +444,9 @@ int imFileFormatJPEG::Open(const char* file_name)
   this->image_count = 1;
 
   this->dinfo.err = jpeg_std_error(&this->jerr.pub);
-  this->jerr.pub.error_exit = JPEGerror_exit;
-  this->jerr.pub.output_message = JPEGoutput_message;
-  this->jerr.pub.emit_message = JPEGemit_message;
+  this->jerr.pub.error_exit = iJPEGerror_exit;
+  this->jerr.pub.output_message = iJPEGoutput_message;
+  this->jerr.pub.emit_message = iJPEGemit_message;
 
   /* Establish the setjmp return context for error_exit to use. */
   if (setjmp(this->jerr.setjmp_buffer)) 
@@ -384,6 +464,10 @@ int imFileFormatJPEG::Open(const char* file_name)
   /* Step 2: specify data source (eg, a file) */
   jpeg_stdio_src(&this->dinfo, (FILE*)this->handle);
 
+  /* replace libjpeg IO methods */
+  iJPEGsource_mgr* src = (iJPEGsource_mgr*)this->dinfo.src;
+  src->pub.fill_input_buffer = iJPEGfill_input_buffer;
+
   return IM_ERR_NONE;
 }
 
@@ -394,9 +478,9 @@ int imFileFormatJPEG::New(const char* file_name)
     return IM_ERR_OPEN;
 
   this->cinfo.err = jpeg_std_error(&this->jerr.pub);
-  this->jerr.pub.error_exit = JPEGerror_exit;
-  this->jerr.pub.output_message = JPEGoutput_message;
-  this->jerr.pub.emit_message = JPEGemit_message;
+  this->jerr.pub.error_exit = iJPEGerror_exit;
+  this->jerr.pub.output_message = iJPEGoutput_message;
+  this->jerr.pub.emit_message = iJPEGemit_message;
   
   /* Establish the setjmp return context for error_exit to use. */
   if (setjmp(this->jerr.setjmp_buffer)) 
@@ -412,6 +496,10 @@ int imFileFormatJPEG::New(const char* file_name)
 
   /* Step 2: specify data destination (eg, a file) */
   jpeg_stdio_dest(&this->cinfo, (FILE*)this->handle);
+
+  iJPEGdestination_mgr* dest = (iJPEGdestination_mgr*)this->cinfo.dest;
+  dest->pub.empty_output_buffer = iJPEGempty_output_buffer;
+  dest->pub.term_destination = iJPEGterm_destination;
 
   strcpy(this->compression, "JPEG");
   this->image_count = 1;
