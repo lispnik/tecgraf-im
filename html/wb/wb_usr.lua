@@ -13,7 +13,7 @@ wb_usr = {
 
 wb_usr.messages = {
   en = {
-    bar_title = "IM - Version 3.13",
+    bar_title = "IM - Version 3.14",
     title = "IM - An Imaging Tool",
   }
 } 
@@ -265,6 +265,7 @@ wb_usr.tree =
             { link= "doxygen/group__rank.html", name= {en= "Rank Convolution Operations" } },
             { link= "doxygen/group__morphbin.html", name= {en= "Morphology Operations for Binary Images" } },
             { link= "doxygen/group__morphgray.html", name= {en= "Morphology Operations for Gray Images" } },
+            { link= "doxygen/group__binary.html", name= {en= "Binary Image Operations" } },
             { link= "",                        name= {en= "" } },
             { link= "doxygen/group__fourier.html", name= {en= "Fourier Transform Operations" } },
             { link= "doxygen/group__transform.html", name= {en= "Other Domain Transform Operations" } },
