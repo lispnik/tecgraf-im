@@ -10,25 +10,22 @@
 #define JAS_VERSION "2.0.14"
 
 #define JAS_HAVE_FCNTL_H		1
-#define JAS_HAVE_IO_H			1
-#define JAS_HAVE_WINDOWS_H		1
 #define JAS_HAVE_SYS_TYPES_H	1
 
+#undef JAS_HAVE_IO_H
+#undef JAS_HAVE_WINDOWS_H
 #undef JAS_HAVE_UNISTD_H
 #undef JAS_HAVE_SYS_TIME_H
 #undef JAS_HAVE_GETTIMEOFDAY
 #undef JAS_HAVE_GETRUSAGE
 #undef JAS_HAVE_SNPRINTF
 
-// I don't think that this should be needed anymore.
-//#if 1
-//#ifndef __cplusplus
-//#undef inline
-//#define inline __inline
-//#endif
-//#endif
-
-#define ssize_t long long
+#if 0
+#ifndef __cplusplus
+#undef inline
+#define inline __inline
+#endif
+#endif
 
 #if !defined(JAS_DEC_DEFAULT_MAX_SAMPLES)
 #define JAS_DEC_DEFAULT_MAX_SAMPLES (64 * ((size_t) 1048576))
