@@ -54,15 +54,15 @@ dllw4-dll:
 ifneq ($(findstring gcc, $(TEC_UNAME)), )
   $(error No support for DirectX in Cygwin)
 endif
-#ifneq ($(findstring mingw, $(TEC_UNAME)), )
-#  $(error No support for DirectX in MingW)
-#endif
+ifneq ($(findstring mingw, $(TEC_UNAME)), )
+  $(error No support for DirectX in MingW)
+endif
 ifneq ($(findstring cygw, $(TEC_UNAME)), )
   $(error No support for DirectX in Cygwin)
 endif
-#ifneq ($(findstring dllw, $(TEC_UNAME)), )
-#  $(error No support for DirectX in MingW)
-#endif
+ifneq ($(findstring dllw, $(TEC_UNAME)), )
+  $(error No support for DirectX in MingW)
+endif
 ifneq ($(findstring dllg, $(TEC_UNAME)), )
   $(error No support for DirectX in Cygwin)
 endif

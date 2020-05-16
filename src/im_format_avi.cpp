@@ -397,12 +397,16 @@ int imFileFormatAVI::WriteImageInfo()
       else
         compvars.fccHandler = mmioFOURCC(compression[0],compression[1],compression[2],compression[3]);
 
+#ifdef _MSC_VER
       __try {
+#endif
         compvars.hic = ICOpen(ICTYPE_VIDEO, compvars.fccHandler, ICMODE_COMPRESS);
+#ifdef _MSC_VER
       }
       __except (EXCEPTION_EXECUTE_HANDLER) {
         compvars.hic = NULL;
       }
+#endif
     }
 
     if (compvars.hic == NULL)
