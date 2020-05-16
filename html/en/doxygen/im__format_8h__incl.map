@@ -1,0 +1,6 @@
+<map id="G" name="G">
+<area shape="rect" id="node3" href="$im__file_8h.html" title="File Access." alt="" coords="5,83,75,112"/>
+<area shape="rect" id="node7" href="$im__attrib_8h.html" title="Attributes Table." alt="" coords="99,83,181,112"/>
+<area shape="rect" id="node5" href="$im_8h.html" title="Main API." alt="" coords="17,160,63,189"/>
+<area shape="rect" id="node9" href="$im__attrib__flat_8h.html" title="Attributes Table Flat API. This will simplify the DLL export, and can be used for C aplications..." alt="" coords="87,160,193,189"/>
+</map>

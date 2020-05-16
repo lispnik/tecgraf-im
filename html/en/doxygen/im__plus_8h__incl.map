@@ -1,0 +1,17 @@
+<map id="G" name="G">
+<area shape="rect" id="node3" href="$im_8h.html" title="Main API." alt="" coords="5,83,51,112"/>
+<area shape="rect" id="node5" href="$im__lib_8h.html" title="Library Management and Main Documentation." alt="" coords="75,83,141,112"/>
+<area shape="rect" id="node7" href="$im__raw_8h.html" title="RAW File Format." alt="" coords="165,83,240,112"/>
+<area shape="rect" id="node9" href="$im__image_8h.html" title="Image Manipulation." alt="" coords="575,237,663,267"/>
+<area shape="rect" id="node11" href="$im__palette_8h.html" title="Palette Generators." alt="" coords="315,83,408,112"/>
+<area shape="rect" id="node13" href="$im__kernel_8h.html" title="Kernel Generators Creates several known kernels." alt="" coords="432,83,520,112"/>
+<area shape="rect" id="node15" href="$im__capture_8h.html" title="Video Capture." alt="" coords="544,83,640,112"/>
+<area shape="rect" id="node17" href="$im__process_8h.html" title="Image Processing." alt="" coords="664,83,763,112"/>
+<area shape="rect" id="node31" href="$im__counter_8h.html" title="Processing Counter." alt="" coords="787,83,883,112"/>
+<area shape="rect" id="node33" href="$im__convert_8h.html" title="Image Conversion." alt="" coords="929,160,1023,189"/>
+<area shape="rect" id="node36" href="$im__attrib__flat_8h.html" title="Attributes Table Flat API. This will simplify the DLL export, and can be used for C aplications..." alt="" coords="957,83,1064,112"/>
+<area shape="rect" id="node19" href="$im__process__pnt_8h.html" title="Image Processing &#45; Point Operations." alt="" coords="335,160,460,189"/>
+<area shape="rect" id="node22" href="$im__process__loc_8h.html" title="Image Processing &#45; Local Operations." alt="" coords="484,160,607,189"/>
+<area shape="rect" id="node25" href="$im__process__glo_8h.html" title="Image Processing &#45; Global Operations." alt="" coords="631,160,753,189"/>
+<area shape="rect" id="node28" href="$im__process__ana_8h.html" title="Image Statistics and Analysis." alt="" coords="777,160,905,189"/>
+</map>
