@@ -1311,7 +1311,7 @@ static void jas_image_calcbbox2(jas_image_t *image, jas_image_coord_t *tlx,
 	*bry = tmpbry;
 }
 
-static inline long decode_twos_comp(jas_ulong c, int prec)
+static long decode_twos_comp(jas_ulong c, int prec)
 {
 	long result;
 	assert(prec >= 2);
@@ -1321,7 +1321,7 @@ static inline long decode_twos_comp(jas_ulong c, int prec)
 	return result;
 }
 
-static inline jas_ulong encode_twos_comp(long n, int prec)
+static jas_ulong encode_twos_comp(long n, int prec)
 {
 	jas_ulong result;
 	assert(prec >= 2);
