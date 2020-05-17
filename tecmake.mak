@@ -6,7 +6,7 @@
 
 #---------------------------------#
 # Tecmake Version
-VERSION = 4.17
+VERSION = 4.20
 
 
 #---------------------------------#
@@ -125,8 +125,6 @@ ifndef TEC_UNAME
       TEC_UNAME:=$(TEC_UNAME)_arm
     endif    
     ifeq ($(TEC_SYSARCH), arm64)
-      # Our dynamic library build is not working in arm64
-      NO_DYNAMIC ?= Yes 
       BUILD_64=Yes
       TEC_UNAME:=$(TEC_UNAME)_arm64
     endif    
@@ -328,6 +326,13 @@ RANLIB   := $(TEC_TOOLCHAIN)ranlib
 AR       := $(TEC_TOOLCHAIN)ar
 DEBUGGER := $(TEC_TOOLCHAIN)gdb
 RCC      := $(TEC_TOOLCHAIN)windres
+
+ifdef USE_EMSCRIPTEN
+CC       := $(TEC_TOOLCHAIN)emcc
+CPPC     := $(TEC_TOOLCHAIN)em++
+RANLIB   := $(TEC_TOOLCHAIN)emranlib
+AR       := $(TEC_TOOLCHAIN)emar
+endif
 
 # Remote build script
 REMOTE  = $(TECMAKE_HOME)/remote
@@ -620,6 +625,10 @@ ifneq ($(findstring Linux, $(TEC_UNAME)), )
     ifeq ($(TEC_SYSARCH), ia64)
       STDFLAGS += -fPIC
       X11_LIB := /usr/X11R6/lib
+    # arm64 config - AIR
+    else ifeq ($(TEC_SYSARCH), arm64)
+      STDFLAGS += -fPIC
+      X11_LIB := /usr/lib/aarch64-linux-gnu/
     else
       STDFLAGS += -m64 -fPIC
       X11_LIB := /usr/X11R6/lib64
@@ -846,7 +855,7 @@ ifdef USE_LUA50
 endif
 
 ifdef USE_LUA51
-  LUA_SFX := 5.1
+  LUA_SFX ?= 5.1
   LIBLUA_SFX := 51
   override USE_LUA = Yes
   LUA := $(LUA51)
@@ -1220,7 +1229,7 @@ endif
 
 ifdef LINK_WEBKIT
   ifneq ($(findstring Linux5, $(TEC_UNAME)), )
-    LIBS += webkitgtk-3.0
+    LIBS += webkit2gtk-4.0
   else 
     ifneq ($(findstring Linux4, $(TEC_UNAME)), )
       LIBS += webkitgtk-3.0
@@ -1320,6 +1329,16 @@ ifdef USE_MOTIF
   endif
 endif
 
+ifdef USE_EMSCRIPTEN
+  EMSCRIPTEN = emscripten
+  #EMSCRIPTEN = src/emscripten
+  EMFLAGS += --js-library $(EMSCRIPTEN)/iupemscripten_common.js 
+             --js-library $(EMSCRIPTEN)/iupemscripten_dialog.js 
+             --js-library $(EMSCRIPTEN)/iupemscripten_button.js
+  STDFLAGS += $(EMFLAGS)
+  STDLDFLAGS += $(EMFLAGS)
+endif
+
 ifdef USE_GTK
   ifdef USE_GTK3
     GTKSFX:=3
@@ -1329,8 +1348,8 @@ ifdef USE_GTK
   
   ifdef USE_PKGCONFIG
     # get compile/link flags via pkg-config
-    PKGINCS += $(shell pkg-config --cflags gtk+-$(GTKSFX).0 gdk-$(GTKSFX).0)
-    PKGLIBS += $(shell pkg-config --libs gtk+-$(GTKSFX).0 gdk-$(GTKSFX).0)
+    PKGINCS += $(shell pkg-config --cflags gtk+-$(GTKSFX).0 gdk-$(GTKSFX).0 gtk+-unix-print-$(GTKSFX).0)
+    PKGLIBS += $(shell pkg-config --libs gtk+-$(GTKSFX).0 gdk-$(GTKSFX).0 gtk+-unix-print-$(GTKSFX).0)
     GTK_BASE := $(shell pkg-config --variable=prefix gtk+-$(GTKSFX).0)
     GTK := $(GTK_BASE)    
   else
@@ -1676,7 +1695,7 @@ $(SRELEASE): $(MAKENAME)
 # Directories Creation
 
 .PHONY: directories
-directories: $(OBJDIR) $(TARGETDIR) $(EXTRADIR) $(LOHDIR) $(LHDIR)
+directories: $(OBJDIR) $(TARGETDIR) $(EXTRADIR) $(LOHDIR) $(LHDIR) $(DEPENDDIR)
 
 $(OBJDIR) $(TARGETDIR):
 	if [ ! -d $@ ] ; then mkdir -p $@ ; fi
@@ -1700,6 +1719,13 @@ ifdef LHDIR
 	  if [ ! -d $@ ] ; then mkdir -p $@ ; fi
 else
   $(LHDIR): ;
+endif
+
+ifdef DEPENDDIR
+  $(DEPENDDIR):
+	  if [ ! -d $@ ] ; then mkdir -p $@ ; fi
+else
+  $(DEPENDDIR): ;
 endif
 
 
@@ -1760,7 +1786,7 @@ endif
 .PHONY: depend
 depend: $(DEPEND)
 
-$(DEPEND): $(MAKENAME)
+$(DEPEND): $(MAKENAME) $(DEPENDDIR)
   ifdef SRC
 	  @echo "" > $(DEPEND)
 	  @which $(CPPC) 2> /dev/null 1>&2 ;\
