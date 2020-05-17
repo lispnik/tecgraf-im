@@ -661,7 +661,8 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
                                                            double* minor_slope, double* minor_length)
 {
   int *local_data_area = 0;
-  double *local_data_cx = 0, *local_data_cy = 0;
+  double *local_data_cx = 0, 
+         *local_data_cy = 0;
   int ret = 0;
 
   int counter = imProcessCounterBegin("PrincipalAxis");
@@ -704,8 +705,10 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
 
     if (!ret)
     {
-      if (local_data_cx) free(local_data_cx);
-      if (local_data_cy) free(local_data_cy);
+      if (local_data_cx) 
+        free(local_data_cx);
+      if (local_data_cy) 
+        free(local_data_cy);
       imProcessCounterEnd(counter);
       return 0;
     }
@@ -721,30 +724,45 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
   ret = iCalcMoment(cm20, 2, 0, image, data_cx, data_cy, region_count, counter);
   if (!ret)
   {
-    if (local_data_area) free(local_data_area);
-    if (local_data_cx) free(local_data_cx);
-    if (local_data_cy) free(local_data_cy);
-    if (cm20) free(cm20); if (cm02) free(cm02); if (cm11) free(cm11);
+    if (local_data_area) 
+      free(local_data_area);
+    if (local_data_cx) 
+      free(local_data_cx);
+    if (local_data_cy) 
+      free(local_data_cy);
+    free(cm20); 
+    free(cm02); 
+    free(cm11);
     imProcessCounterEnd(counter);
     return 0;
   }
   ret = iCalcMoment(cm02, 0, 2, image, data_cx, data_cy, region_count, counter);
   if (!ret)
   {
-    if (local_data_area) free(local_data_area);
-    if (local_data_cx) free(local_data_cx);
-    if (local_data_cy) free(local_data_cy);
-    if (cm20) free(cm20); if (cm02) free(cm02); if (cm11) free(cm11);
+    if (local_data_area) 
+      free(local_data_area);
+    if (local_data_cx) 
+      free(local_data_cx);
+    if (local_data_cy) 
+      free(local_data_cy);
+    free(cm20); 
+    free(cm02); 
+    free(cm11);
     imProcessCounterEnd(counter);
     return 0;
   }
   ret = iCalcMoment(cm11, 1, 1, image, data_cx, data_cy, region_count, counter);
   if (!ret)
   {
-    if (local_data_area) free(local_data_area);
-    if (local_data_cx) free(local_data_cx);
-    if (local_data_cy) free(local_data_cy);
-    if (cm20) free(cm20); if (cm02) free(cm02); if (cm11) free(cm11);
+    if (local_data_area) 
+      free(local_data_area);
+    if (local_data_cx) 
+      free(local_data_cx);
+    if (local_data_cy) 
+      free(local_data_cy);
+    free(cm20); 
+    free(cm02); 
+    free(cm11);
     imProcessCounterEnd(counter);
     return 0;
   }
@@ -827,17 +845,24 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
 
     if (!imCounterInc(counter))
     {
-      if (local_major_slope) free(local_major_slope);
-      if (local_minor_slope) free(local_minor_slope);
+      if (local_major_slope) 
+        free(local_major_slope);
+      if (local_minor_slope) 
+        free(local_minor_slope);
       free(A1);
       free(A2);
       free(C1);
       free(C2);
 
-      if (local_data_area) free(local_data_area);
-      if (local_data_cx) free(local_data_cx);
-      if (local_data_cy) free(local_data_cy);
-      if (cm20) free(cm20); if (cm02) free(cm02); if (cm11) free(cm11);
+      if (local_data_area) 
+        free(local_data_area);
+      if (local_data_cx) 
+        free(local_data_cx);
+      if (local_data_cy) 
+        free(local_data_cy);
+      free(cm20); 
+      free(cm02); 
+      free(cm11);
 
       imProcessCounterEnd(counter);
       return 0;
@@ -845,7 +870,9 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
   }
 
   // moments are not necessary anymore
-  free(cm20); free(cm02); free(cm11);
+  free(cm20); 
+  free(cm02); 
+  free(cm11);
   cm20 = 0; cm02 = 0; cm11 = 0;
 
   // maximum distance from a point in the perimeter to an axis in each side of the axis
@@ -963,10 +990,12 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
   free(C1);  
   free(C2);
 
-  if (local_data_area) free(local_data_area);
-  if (local_data_cx) free(local_data_cx);
-  if (local_data_cy) free(local_data_cy);
-  if (cm20) free(cm20); if (cm02) free(cm02); if (cm11) free(cm11);
+  if (local_data_area) 
+    free(local_data_area);
+  if (local_data_cx) 
+    free(local_data_cx);
+  if (local_data_cy) 
+    free(local_data_cy);
 
   imProcessCounterEnd(counter);
   return ret;
@@ -1106,7 +1135,8 @@ int imAnalyzeMeasureHoles(const imImage* image, int connect, int region_count, i
     }
   }
 
-  if (holes_perim) free(holes_perim);
+  if (holes_perim) 
+    free(holes_perim);
   free(holes_area);
   imImageDestroy(holes_image);
 
