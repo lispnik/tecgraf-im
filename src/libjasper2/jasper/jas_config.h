@@ -20,6 +20,16 @@
 #undef JAS_HAVE_GETRUSAGE
 #undef JAS_HAVE_SNPRINTF
 
+#ifndef INT_FAST32_MAX
+#define INT_FAST32_MAX   2147483647
+#endif
+#ifndef INT_FAST32_MIN
+#define INT_FAST32_MIN   (-2147483647 - 1)
+#endif
+#ifndef SIZE_MAX
+#define SIZE_MAX 0xffffffff
+#endif
+
 #if 0
 #ifndef __cplusplus
 #undef inline
