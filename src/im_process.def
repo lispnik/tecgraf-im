@@ -68,6 +68,7 @@ EXPORTS
   imHistogramNew
   imHistogramRelease
   imHistogramShift
+  imHistogramCount
   imCalcHistogramStatistics
   imCalcHistoImageStatistics
   imCalcImageStatistics
