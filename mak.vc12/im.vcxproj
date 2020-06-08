@@ -50,7 +50,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>../include;../src;../src/libtiff;../src/libjpeg;../../zlib/include;../src/libexif;../src/libpng;../src/liblzf;../src/minilzo;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../include;../src;../src/libtiff;../src/libjpeg;../../zlib/include;../src/libexif;../src/libpng;../src/liblzf;../src/lz4;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE;USE_EXIF;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>
       </ExceptionHandling>
@@ -75,7 +75,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>../include;../src;../src/libtiff;../src/libjpeg;../../zlib/include;../src/libexif;../src/libpng;../src/liblzf;../src/minilzo;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../include;../src;../src/libtiff;../src/libjpeg;../../zlib/include;../src/libexif;../src/libpng;../src/liblzf;../src/lz4;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_DEPRECATE;USE_EXIF;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>
       </ExceptionHandling>
@@ -250,6 +250,7 @@
     <ClCompile Include="..\src\im_format_tiff.cpp" />
     <ClCompile Include="..\src\liblzf\lzf_c.c" />
     <ClCompile Include="..\src\liblzf\lzf_d.c" />
+    <ClCompile Include="..\src\lz4\lz4.c" />
     <ClCompile Include="..\src\libpng\png.c" />
     <ClCompile Include="..\src\libpng\pngerror.c" />
     <ClCompile Include="..\src\libpng\pngget.c" />
@@ -325,6 +326,7 @@
     <ClInclude Include="..\src\libexif\olympus\mnote-olympus-tag.h" />
     <ClInclude Include="..\src\libexif\pentax\mnote-pentax-entry.h" />
     <ClInclude Include="..\src\libexif\pentax\mnote-pentax-tag.h" />
+    <ClInclude Include="..\src\lz4\lz4.h" />
     <ClInclude Include="..\src\liblzf\lzf.h" />
     <ClInclude Include="..\src\liblzf\lzfP.h" />
     <ClInclude Include="..\src\libpng\png.h" />

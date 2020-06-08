@@ -239,6 +239,8 @@ EXPORTS
   imCompressDataUnZ
   imCompressDataLZF
   imCompressDataUnLZF
+  imCompressDataLZ4
+  imCompressDataUnLZ4
   imAttribArrayCreate
   imAttribArrayGet
   imAttribArraySet

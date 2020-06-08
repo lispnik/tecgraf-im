@@ -30,6 +30,10 @@ int imCompressDataUnZ(const void* src_data, int src_size, void* dst_data, int ds
   return (int)ret_size;
 }
 
+
+/*************************************************************/
+
+
 extern "C" {
 #include "lzf.h"
 }
@@ -42,4 +46,31 @@ int imCompressDataLZF(const void* src_data, int src_size, void* dst_data, int ds
 int imCompressDataUnLZF(const void* src_data, int src_size, void* dst_data, int dst_size)
 {
   return lzf_decompress(src_data, src_size, dst_data, dst_size);
+}
+
+
+/*************************************************************/
+
+
+#include "lz4.h"
+
+
+int imCompressDataLZ4(const void* src_data, int src_size, void* dst_data, int dst_size)
+{
+  int dst_len = LZ4_compress_default((const char*)src_data, (char*)dst_data, src_size, dst_size);
+
+  if (dst_len <= 0)
+    return 0;
+
+  return dst_len;
+}
+
+int imCompressDataUnLZ4(const void* src_data, int src_size, void* dst_data, int dst_size)
+{
+  int dst_len = LZ4_decompress_safe((const char*)src_data, (char*)dst_data, src_size, dst_size);
+
+  if (dst_len < 0)
+    return 0;
+
+  return dst_len;
 }

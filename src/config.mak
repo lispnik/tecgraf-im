@@ -61,6 +61,11 @@ SRCLZF = \
 SRCLZF  := $(addprefix liblzf/, $(SRCLZF))
 INCLUDES += liblzf
 
+SRCLZ4 = \
+    lz4.c
+SRCLZ4  := $(addprefix lz4/, $(SRCLZ4))
+INCLUDES += lz4
+
 SRC = \
     im_oldcolor.c         im_oldresize.c      im_converttype.cpp   \
     im_attrib.cpp         im_format.cpp       im_format_tga.cpp    im_filebuffer.cpp    \
@@ -73,7 +78,7 @@ SRC = \
     im_convertcolor.cpp   im_fileraw.cpp      im_format_krn.cpp    im_compress.cpp      \
     im_file.cpp           im_old.cpp          im_format_pfm.cpp                         \
     im_format_tiff.cpp    im_format_png.cpp   im_format_jpeg.cpp                        \
-    $(SRCLZF)
+    $(SRCLZF) $(SRCLZ4)
     
 # NOT necessary if using another distribution
 SRC += $(SRCTIFF) tiff_binfile.c

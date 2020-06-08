@@ -48,6 +48,9 @@
       <UniqueIdentifier>{7216d4be-3953-44f3-8cf7-3bb284f69f66}</UniqueIdentifier>
       <Extensions>h;hpp;hxx;hm;inl</Extensions>
     </Filter>
+    <Filter Include="Source Files\LZ4">
+      <UniqueIdentifier>{0233df06-8646-4e88-8bdd-a095803c4b71}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\src\im.def">
@@ -559,6 +562,9 @@
     <ClCompile Include="..\src\im_convertbitmap.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\lz4\lz4.c">
+      <Filter>Source Files\LZ4</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\libtiff\t4.h">
@@ -809,6 +815,9 @@
     </ClInclude>
     <ClInclude Include="..\include\im_old.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\lz4\lz4.h">
+      <Filter>Source Files\LZ4</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
