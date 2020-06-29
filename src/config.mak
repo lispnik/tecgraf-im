@@ -5,6 +5,7 @@ OPT = YES
 INCLUDES = . ../include 
 LDIR = ../lib/$(TEC_UNAME)
 USE_ZLIB = Yes
+DEPENDDIR = dep
 
 # WORDS_BIGENDIAN used by libTIFF
 ifeq ($(TEC_SYSARCH), ppc)

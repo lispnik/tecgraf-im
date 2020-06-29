@@ -3,6 +3,7 @@ LIBNAME = imlua_avi
 DEF_FILE = imlua_avi.def
 
 OPT = YES
+DEPENDDIR = dep
 
 SRCDIR = lua5
 

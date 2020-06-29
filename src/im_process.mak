@@ -19,6 +19,7 @@ SRC += im_convertbitmap.cpp im_convertcolor.cpp im_converttype.cpp
 USE_IM = Yes
 IM = ..
 DEFINES += IM_PROCESS
+DEPENDDIR = dep
 
 ifdef USE_OPENMP
   DEF_FILE := $(LIBNAME).def

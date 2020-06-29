@@ -3,6 +3,7 @@ LIBNAME = im_capture
 OPT = YES
              
 INCLUDES = ../include
+DEPENDDIR = dep
 
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
   # We use ISampleGrabberCB from qedit.h which is available only in an old Windows SDK (6.1 - Vista)

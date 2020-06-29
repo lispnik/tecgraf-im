@@ -3,6 +3,7 @@ LIBNAME = im_fftw3
 OPT = YES
 
 DEF_FILE = im_fftw.def
+DEPENDDIR = dep
 
 SRC = process/im_fft.cpp
 

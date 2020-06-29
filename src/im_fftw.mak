@@ -3,6 +3,7 @@ LIBNAME = im_fftw
 OPT = YES
 
 DEF_FILE = im_fftw.def
+DEPENDDIR = dep
 
 SRC = config.c executor.c fftwnd.c fn_1.c fn_10.c fn_11.c fn_12.c fn_13.c \
   fn_14.c fn_15.c fn_16.c fn_2.c fn_3.c fn_32.c fn_4.c fn_5.c fn_6.c fn_64.c fn_7.c \

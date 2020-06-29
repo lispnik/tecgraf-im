@@ -32,6 +32,7 @@ else
 endif
   
 DEFINES = _CRT_NON_CONFORMING_SWPRINTFS                                     
+DEPENDDIR = dep
 
 LIBS = wmvcore
 

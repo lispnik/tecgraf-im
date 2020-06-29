@@ -3,7 +3,8 @@ LIBNAME = im_ecw
 OPT = YES
 
 SRC = im_format_ecw.cpp
-                                       
+DEPENDDIR = dep
+                          
 ECWSDKINC = d:/lng/ecw_sdk/include
 ECWSDKLIB = d:/lng/ecw_sdk/lib/$(TEC_UNAME)
                                        

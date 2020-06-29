@@ -3,6 +3,7 @@ LIBNAME = imlua_jp2
 DEF_FILE = imlua_jp2.def
 
 OPT = YES
+DEPENDDIR = dep
 
 SRCDIR = lua5
 

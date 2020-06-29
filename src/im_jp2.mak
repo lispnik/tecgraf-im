@@ -2,6 +2,8 @@ PROJNAME = im
 LIBNAME = im_jp2
 OPT = YES
 
+DEPENDDIR = dep
+
 # GeoJasper support only available for Jasper version 1
 # GeoJasPer 1.4.0
 # Copyright (c) 2003-2007 Dmitry V. Fedorov.

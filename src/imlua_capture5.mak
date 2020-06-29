@@ -3,6 +3,7 @@ LIBNAME = imlua_capture
 DEF_FILE = imlua_capture.def
 
 OPT = YES
+DEPENDDIR = dep
 
 SRCDIR = lua5
 

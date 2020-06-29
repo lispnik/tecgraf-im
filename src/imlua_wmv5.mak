@@ -3,6 +3,7 @@ LIBNAME = imlua_wmv
 DEF_FILE = imlua_wmv.def
 
 OPT = YES
+DEPENDDIR = dep
 
 SRCDIR = lua5
 
