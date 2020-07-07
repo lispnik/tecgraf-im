@@ -21,3 +21,4 @@ REM call make_uname_lua %1 %2 %3 %4 %5 %6 %7 %8
 call make_uname_lua %1 "USE_LUA51=Yes" %2 %3 %4 %5 %6 %7 %8
 call make_uname_lua %1 "USE_LUA52=Yes" %2 %3 %4 %5 %6 %7 %8
 call make_uname_lua %1 "USE_LUA53=Yes" %2 %3 %4 %5 %6 %7 %8
+call make_uname_lua %1 "USE_LUA54=Yes" %2 %3 %4 %5 %6 %7 %8
