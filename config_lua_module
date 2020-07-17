@@ -37,5 +37,4 @@ Make_Lua_Link imlua
 Make_Lua_Link imlua_process
 Make_Lua_Link imlua_process_omp
 Make_Lua_Link imlua_jp2
-Make_Lua_Link imlua_fftw
 Make_Lua_Link imlua_fftw3

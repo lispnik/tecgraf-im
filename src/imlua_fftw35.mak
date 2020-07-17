@@ -1,5 +1,5 @@
 PROJNAME = im
-LIBNAME = imlua_fftw
+LIBNAME = imlua_fftw3
 
 IM = ..
 
@@ -21,12 +21,7 @@ SRCLUA = lua5/im_fftw.lua
 SRCLUADIR = lua5
 
 INCLUDES = lua5
-LIBS = im_fftw
-
-ifdef USE_FFTW3
-  LIBNAME = imlua_fftw3
-  LIBS = im_fftw3
-endif
+LIBS = im_fftw3
 
 ifdef USE_LUA_VERSION
   USE_LUA51:=

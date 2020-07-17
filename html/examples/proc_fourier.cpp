@@ -2,7 +2,7 @@
   process in the domain frequency, 
   and calculates the Inverse FFT.
 
-  Needs "im.lib" and "im_fftw.lib".
+  Needs "im.lib" and "im_fftw.lib". The FFTW is a very fast Fourier transform, but is contaminated by the GPL license, so everything must be also GPL.
 
   Usage: proc_fourier <input_file_name> <output_file_name> <output_format>
 
