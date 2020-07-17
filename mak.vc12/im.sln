@@ -20,13 +20,9 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "im_process", "im_process.vc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "im_wmv", "im_wmv.vcxproj", "{CB86E507-6B6C-4FDF-9B6D-27AA925AE463}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "im_fftw", "im_fftw.vcxproj", "{CB80E607-6B6C-345F-9B6D-27AA9123E493}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "imlua", "imlua.vcxproj", "{CB863607-6B6C-0000-0000-000000001234}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "imlua_capture", "imlua_capture.vcxproj", "{CB863607-6B6C-0000-0000-678900001234}"
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "imlua_fftw", "imlua_fftw.vcxproj", "{CB863607-6B6C-0000-1234-000000001234}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "imlua_process", "imlua_process.vcxproj", "{CB863607-6B6C-0000-7689-000000001234}"
 EndProject
