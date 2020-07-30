@@ -37,17 +37,15 @@ Functions</h3></td></tr>
 <tr><td class="memItemLeft" align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__fourier.html#ga60c98660683ac80fae89d4d3f23039c7">imProcessSwapQuadrants</a> (<a class="el" href="struct__imImage.html">imImage</a> *image, int center2origin)</td></tr>
 </table>
 <hr/><a name="_details"></a><h3>Detailed Description</h3>
-<dl class="user"><dt><b></b></dt><dd>All Fourier transforms use FFTW library. <br/>
- The pre-compiled binaries for FFTW version 2.1.5 includes all the necessary files. <br/>
- The pre-compiled binaries for FFTW version 3.x depends on an external library. For Windows the FFTW DLLs are included in the package. For Linux you must use the libfftw3 included with your sysytem. </dd></dl>
+<dl class="user"><dt><b></b></dt><dd>All Fourier transforms use FFTW 3.x library. <br/>
+ The pre-compiled binaries depend on an external library. For Windows the FFTW DLLs are included in the package. For Linux you must use the libfftw3 included with your sysytem. </dd></dl>
 <dl class="user"><dt><b></b></dt><dd>FFTW Copyright Matteo Frigo, Steven G. Johnson and the MIT. <br/>
  <a href="http://www.fftw.org">http://www.fftw.org</a> <br/>
  See "fftw.h" </dd></dl>
-<dl class="user"><dt><b></b></dt><dd>Must link with "im_fftw" library. <br/>
+<dl class="user"><dt><b></b></dt><dd>Must link with "im_fftw3" library. <br/>
  </dd></dl>
-<dl class="user"><dt><b></b></dt><dd>IMPORTANT: The FFTW lib has a GPL license. The license of the "im_fftw" library is automatically the GPL. So you cannot use it for commercial applications without contacting the authors. </dd></dl>
-<dl class="user"><dt><b></b></dt><dd>FFTW 2.x can have float or double functions, not both. Use build only for float. <br/>
- FFTW 3.x can have both. </dd></dl>
+<dl class="user"><dt><b></b></dt><dd><b>IMPORTANT:</b> The FFTW lib has a GPL license. The license of the "im_fftw3" library is automatically the GPL. So you cannot use it for commercial applications without contacting the authors. </dd></dl>
+<dl class="user"><dt><b></b></dt><dd>FFTW 3.x have float and double support. </dd></dl>
 <dl class="user"><dt><b></b></dt><dd>See <a class="el" href="im__process__glo_8h.html">im_process_glo.h</a> </dd></dl>
 <hr/><h3>Function Documentation</h3>
 <a class="anchor" id="gab303024d984d9d646950a365c92809ee"></a><!-- doxytag: member="im_process_glo.h::imProcessFFT" ref="gab303024d984d9d646950a365c92809ee" args="(const imImage *src_image, imImage *dst_image)" -->
@@ -188,7 +186,7 @@ Functions</h3></td></tr>
 </div>
 </div>
 </div>
-<hr class="footer"/><address class="footer"><small>Generated on Mon Jun 8 2020 10:44:47 for IM by&nbsp;
+<hr class="footer"/><address class="footer"><small>Generated on Thu Jul 30 2020 20:43:37 for IM by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img class="footer" src="doxygen.png" alt="doxygen"/></a> 1.7.1 </small></address>
 </body>
