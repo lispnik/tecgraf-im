@@ -313,22 +313,22 @@ void imImageSetAlpha(imImage* image, double alpha)
     switch(image->data_type)
     {
     case IM_BYTE:
-      memset(image->data[image->depth], (imbyte)alpha, image->plane_size);
+      memset(image->data[image->depth], (imbyte)alpha, image->count);
       break;                                                                                
     case IM_SHORT:                                                                           
-      iSet((short*)image->data[image->depth], (short)alpha, image->plane_size);
+      iSet((short*)image->data[image->depth], (short)alpha, image->count);
       break;                                                                                
     case IM_USHORT:                                                                           
-      iSet((imushort*)image->data[image->depth], (imushort)alpha, image->plane_size);
+      iSet((imushort*)image->data[image->depth], (imushort)alpha, image->count);
       break;                                                                                
     case IM_INT:                                                                           
-      iSet((int*)image->data[image->depth], (int)alpha, image->plane_size);
+      iSet((int*)image->data[image->depth], (int)alpha, image->count);
       break;                                                                                
     case IM_FLOAT:                                                                           
-      iSet((float*)image->data[image->depth], (float)alpha, image->plane_size);
+      iSet((float*)image->data[image->depth], (float)alpha, image->count);
       break;                                                                                
     case IM_DOUBLE:
-      iSet((double*)image->data[image->depth], (double)alpha, image->plane_size);
+      iSet((double*)image->data[image->depth], (double)alpha, image->count);
       break;
     }
   }
