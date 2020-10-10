@@ -130,10 +130,10 @@ int imProcessRotateRef(const imImage* src_image, imImage* dst_image, double cos0
  * Direction can be clockwise (1) or counter clockwise (-1).
  * Returns zero if the counter aborted.
  *
- * \verbatim im.ProcessRotate90(src_image: imImage, dst_image: imImage, dir_clockwise: boolean) -> counter: boolean [in Lua 5] \endverbatim
- * \verbatim im.ProcessRotate90New(image: imImage, dir_clockwise: boolean) -> counter: boolean, new_image: imImage [in Lua 5] \endverbatim
+ * \verbatim im.ProcessRotate90(src_image: imImage, dst_image: imImage, dir: number) -> counter: boolean [in Lua 5] \endverbatim
+ * \verbatim im.ProcessRotate90New(image: imImage, dir: number) -> counter: boolean, new_image: imImage [in Lua 5] \endverbatim
  * \ingroup geom */
-int imProcessRotate90(const imImage* src_image, imImage* dst_image, int dir_clockwise);
+int imProcessRotate90(const imImage* src_image, imImage* dst_image, int dir);
 
 /** Rotates the image in 180 degrees. Swap columns and swap lines. \n
  * Images must be of the same type and size.

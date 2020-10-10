@@ -18,7 +18,7 @@ print("")
 
 function Rotate90(image)
   local new_image = im.ImageCreateBased(image, image:Height(), image:Width())
-  im.ProcessRotate90(image, new_image, true)
+  im.ProcessRotate90(image, new_image, 1)
   image:Destroy()
   return new_image, new_image:Width(), new_image:Height()
 end
