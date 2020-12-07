@@ -179,7 +179,7 @@ int imCalcPercentMinMax(const imImage* image, double percent, int ignore_zero, i
 
 /** Find white regions in binary image. \n
  * Result is IM_GRAY/IM_USHORT type. Regions can be 4 connected or 8 connected. \n
- * The number of regions found is returned in region_count. Background is marked as 0. \n
+ * The number of regions found is returned in region_count. Background is marked as 0, and it is not included in count. \n
  * Regions touching the border are considered only if touch_border=1.
  * Not using OpenMP when enabled.
  * Returns zero if the counter aborted.
