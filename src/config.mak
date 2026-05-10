@@ -2,10 +2,70 @@ PROJNAME = im
 LIBNAME = im
 OPT = YES
 
-INCLUDES = . ../include 
 LDIR = ../lib/$(TEC_UNAME)
 USE_ZLIB = Yes
 DEPENDDIR = dep
+
+# Default to system image libs on macOS and Linux. The bundled
+# libtiff/libjpeg sources in the IM tree don't build against modern
+# toolchains so the bundled fallback is essentially a no-op there.
+ifneq ($(findstring MacOS, $(TEC_UNAME)), )
+  USE_SYSTEM_IMAGE_LIBS ?= Yes
+endif
+ifneq ($(findstring Linux, $(TEC_UNAME)), )
+  USE_SYSTEM_IMAGE_LIBS ?= Yes
+endif
+
+# Windows: opt-in. Set USE_SYSTEM_IMAGE_LIBS=Yes plus one of
+#   - VCPKG_ROOT (Microsoft vcpkg, recommended for MSVC)
+#   - MSYS2_PREFIX (e.g. C:/msys64/mingw64, for mingw builds)
+#   - WINDEPS_ROOT (a flat layout with include/, lib/, bin/)
+# When none of the three is supplied the bundled fallback is used.
+ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+  ifdef VCPKG_ROOT
+    USE_SYSTEM_IMAGE_LIBS ?= Yes
+  endif
+  ifdef MSYS2_PREFIX
+    USE_SYSTEM_IMAGE_LIBS ?= Yes
+  endif
+  ifdef WINDEPS_ROOT
+    USE_SYSTEM_IMAGE_LIBS ?= Yes
+  endif
+endif
+
+ifdef USE_SYSTEM_IMAGE_LIBS
+  # Put the system base include path BEFORE "." so transitive <libexif/...>
+  # includes resolved by the system libexif headers don't get shadowed by
+  # the bundled libexif/ dir still present in the source tree.
+  ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+    # Windows: pick the first env var that's set. Tools are expected to
+    # produce a layout with include/ and lib/ underneath.
+    ifdef VCPKG_ROOT
+      # vcpkg's per-triplet layout. VCPKG_TRIPLET defaults to
+      # x64-windows; user can override (e.g. x64-windows-static).
+      VCPKG_TRIPLET ?= x64-windows
+      INCLUDES = $(VCPKG_ROOT)/installed/$(VCPKG_TRIPLET)/include . ../include
+      LDIR    += $(VCPKG_ROOT)/installed/$(VCPKG_TRIPLET)/lib
+    else ifdef MSYS2_PREFIX
+      INCLUDES = $(MSYS2_PREFIX)/include . ../include
+      LDIR    += $(MSYS2_PREFIX)/lib
+    else ifdef WINDEPS_ROOT
+      INCLUDES = $(WINDEPS_ROOT)/include . ../include
+      LDIR    += $(WINDEPS_ROOT)/lib
+    endif
+  else
+    ifneq ($(wildcard /opt/homebrew/include),)
+      INCLUDES = /opt/homebrew/include . ../include
+    else ifneq ($(wildcard /usr/local/include/libexif),)
+      INCLUDES = /usr/local/include . ../include
+    else
+      # Linux distros typically install libexif under /usr/include/libexif/.
+      INCLUDES = /usr/include . ../include
+    endif
+  endif
+else
+  INCLUDES = . ../include
+endif
 
 # WORDS_BIGENDIAN used by libTIFF
 ifeq ($(TEC_SYSARCH), ppc)
@@ -65,7 +125,6 @@ INCLUDES += liblzf
 SRCLZ4 = \
     lz4.c
 SRCLZ4  := $(addprefix lz4/, $(SRCLZ4))
-INCLUDES += lz4
 
 SRC = \
     im_oldcolor.c         im_oldresize.c      im_converttype.cpp   \
@@ -78,23 +137,47 @@ SRC = \
     im_convertbitmap.cpp  im_format_led.cpp   im_counter.cpp       im_str.cpp           \
     im_convertcolor.cpp   im_fileraw.cpp      im_format_krn.cpp    im_compress.cpp      \
     im_file.cpp           im_old.cpp          im_format_pfm.cpp                         \
-    im_format_tiff.cpp    im_format_png.cpp   im_format_jpeg.cpp                        \
-    $(SRCLZF) $(SRCLZ4)
-    
-# NOT necessary if using another distribution
-SRC += $(SRCTIFF) tiff_binfile.c
-INCLUDES += libtiff 
+    im_format_tiff.cpp    im_format_png.cpp   im_format_jpeg.cpp
 
-SRC += $(SRCJPEG)
-INCLUDES += libjpeg 
-
-ifneq ($(findstring Win, $(TEC_SYSNAME)), )
-  SRC += $(SRCPNG) 
-  INCLUDES += libpng
+ifdef USE_SYSTEM_IMAGE_LIBS
+  # Link against system libs instead of compiling bundled sources.
+  # Note: drops imBinFile-backed I/O for TIFF (tiff_binfile.c uses libtiff
+  # private headers that aren't shipped with system installs).
+  LIBS += tiff jpeg lz4
+  # liblzf has no Windows system-package presence (not in vcpkg or MSYS2),
+  # so on Windows we always compile it from the bundled tree even when
+  # USE_SYSTEM_IMAGE_LIBS is on.
+  ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+    SRC += $(SRCLZF)
+    INCLUDES += liblzf
+  else
+    LIBS += lzf
+  endif
 else
-  # In Linux, use the installed files in the system (package libpng-dev)
-  # If using GTK, then must use the same libpng they use
+  SRC += $(SRCLZF)
+  INCLUDES += liblzf
+  SRC += $(SRCLZ4)
+  INCLUDES += lz4
+  SRC += $(SRCTIFF) tiff_binfile.c
+  INCLUDES += libtiff
+  SRC += $(SRCJPEG)
+  INCLUDES += libjpeg
+endif
+
+# libpng: system on UNIX/macOS, system-or-bundled on Windows.
+ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+  ifdef USE_SYSTEM_IMAGE_LIBS
+    LIBS += libpng16
+  else
+    SRC += $(SRCPNG)
+    INCLUDES += libpng
+  endif
+else
+  # The IM build was historically missing -lpng (relying on
+  # -undefined dynamic_lookup to leave libpng symbols dangling), so
+  # libim.dylib was unloadable in isolation. Link it explicitly.
   INCLUDES += /usr/include/libpng
+  LIBS += png
 endif
     
 ifneq ($(findstring Win, $(TEC_SYSNAME)), )
@@ -121,10 +204,33 @@ else
 endif
 
 ifdef USE_EXIF
-  INCLUDES += libexif
-  SRC += $(SRCEXIF)    
+  ifdef USE_SYSTEM_IMAGE_LIBS
+    # IM source uses unqualified "exif-data.h"; system installs put it
+    # under <prefix>/include/libexif/, which we add here. The base
+    # prefix is already first in INCLUDES so transitive <libexif/...>
+    # resolves to the system copy, not the bundled tree.
+    ifneq ($(findstring Win, $(TEC_SYSNAME)), )
+      ifdef VCPKG_ROOT
+        INCLUDES += $(VCPKG_ROOT)/installed/$(VCPKG_TRIPLET)/include/libexif
+      else ifdef MSYS2_PREFIX
+        INCLUDES += $(MSYS2_PREFIX)/include/libexif
+      else ifdef WINDEPS_ROOT
+        INCLUDES += $(WINDEPS_ROOT)/include/libexif
+      endif
+    else ifneq ($(wildcard /opt/homebrew/include/libexif),)
+      INCLUDES += /opt/homebrew/include/libexif
+    else ifneq ($(wildcard /usr/local/include/libexif),)
+      INCLUDES += /usr/local/include/libexif
+    else ifneq ($(wildcard /usr/include/libexif),)
+      INCLUDES += /usr/include/libexif
+    endif
+    LIBS += exif
+  else
+    INCLUDES += libexif
+    SRC += $(SRCEXIF)
+  endif
   DEFINES += USE_EXIF
-endif  
+endif
 
 ifneq ($(findstring AIX, $(TEC_UNAME)), )
   DEFINES += IM_DEFMATHFLOAT
@@ -139,7 +245,9 @@ ifneq ($(findstring HP-UX, $(TEC_UNAME)), )
 endif
 
 ifneq ($(findstring MacOS, $(TEC_UNAME)), )
-  ifneq ($(TEC_SYSMINOR), 4)
+  # Build as MH_DYLIB so other libs can link against it.
+  # Old MacOS X 10.4 (TEC_SYSVERSION=10, TEC_SYSMINOR=4) didn't support dylibs.
+  ifneq ($(TEC_SYSVERSION).$(TEC_SYSMINOR), 10.4)
     BUILD_DYLIB=Yes
   endif
 endif

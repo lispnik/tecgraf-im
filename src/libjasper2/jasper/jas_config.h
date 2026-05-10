@@ -12,13 +12,27 @@
 #define JAS_HAVE_FCNTL_H		1
 #define JAS_HAVE_SYS_TYPES_H	1
 
+#ifndef JAS_HAVE_IO_H
 #undef JAS_HAVE_IO_H
+#endif
+#ifndef JAS_HAVE_WINDOWS_H
 #undef JAS_HAVE_WINDOWS_H
+#endif
+#ifndef JAS_HAVE_UNISTD_H
 #undef JAS_HAVE_UNISTD_H
+#endif
+#ifndef JAS_HAVE_SYS_TIME_H
 #undef JAS_HAVE_SYS_TIME_H
+#endif
+#ifndef JAS_HAVE_GETTIMEOFDAY
 #undef JAS_HAVE_GETTIMEOFDAY
+#endif
+#ifndef JAS_HAVE_GETRUSAGE
 #undef JAS_HAVE_GETRUSAGE
+#endif
+#ifndef JAS_HAVE_SNPRINTF
 #undef JAS_HAVE_SNPRINTF
+#endif
 
 #ifndef INT_FAST32_MAX
 #define INT_FAST32_MAX   2147483647
