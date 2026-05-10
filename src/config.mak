@@ -60,7 +60,11 @@ ifdef USE_SYSTEM_IMAGE_LIBS
       INCLUDES = /usr/local/include . ../include
     else
       # Linux distros typically install libexif under /usr/include/libexif/.
-      INCLUDES = /usr/include . ../include
+      # Note: '.' (= src/) is intentionally omitted here so that the
+      # bundled src/libexif/ subdirectory does not shadow the system
+      # libexif headers via transitive '<libexif/...>' includes; that
+      # produced struct redefinitions against modern libexif.
+      INCLUDES = /usr/include ../include
     endif
   endif
 else

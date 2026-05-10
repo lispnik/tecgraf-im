@@ -1,0 +1,7 @@
+# Build outputs
+/lib/
+/obj/
+/src/dep/
+
+# macOS junk
+.DS_Store
