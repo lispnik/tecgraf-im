@@ -11,7 +11,12 @@
 #include "im_counter.h"
 #include "im_binfile.h"
 
-#include "tiffiop.h"
+#include "tiffio.h"
+
+#ifndef TRUE
+#define TRUE  1
+#define FALSE 0
+#endif
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -277,53 +282,53 @@ static int iTIFFWriteTag(TIFF* tiff, int index, const char* name, int data_type,
   if (fld)
   {
     /* ignored tags */
-    if (fld->field_tag == TIFFTAG_EXIFIFD ||         /* offset */
-        fld->field_tag == TIFFTAG_GPSIFD ||          
-        fld->field_tag == TIFFTAG_INTEROPERABILITYIFD ||   
-	      fld->field_tag == TIFFTAG_SUBIFD ||          
-	      fld->field_tag == TIFFTAG_COLORMAP ||        /* handled elsewhere */
-	      fld->field_tag == TIFFTAG_EXTRASAMPLES ||
-	      fld->field_tag == TIFFTAG_TRANSFERFUNCTION ||
-	      fld->field_tag == TIFFTAG_RESOLUTIONUNIT ||
-	      fld->field_tag == TIFFTAG_XRESOLUTION ||
-	      fld->field_tag == TIFFTAG_YRESOLUTION ||
-        fld->field_tag == TIFFTAG_INKNAMES)
+    if (TIFFFieldTag(fld) == TIFFTAG_EXIFIFD ||         /* offset */
+        TIFFFieldTag(fld) == TIFFTAG_GPSIFD ||          
+        TIFFFieldTag(fld) == TIFFTAG_INTEROPERABILITYIFD ||   
+	      TIFFFieldTag(fld) == TIFFTAG_SUBIFD ||          
+	      TIFFFieldTag(fld) == TIFFTAG_COLORMAP ||        /* handled elsewhere */
+	      TIFFFieldTag(fld) == TIFFTAG_EXTRASAMPLES ||
+	      TIFFFieldTag(fld) == TIFFTAG_TRANSFERFUNCTION ||
+	      TIFFFieldTag(fld) == TIFFTAG_RESOLUTIONUNIT ||
+	      TIFFFieldTag(fld) == TIFFTAG_XRESOLUTION ||
+	      TIFFFieldTag(fld) == TIFFTAG_YRESOLUTION ||
+        TIFFFieldTag(fld) == TIFFTAG_INKNAMES)
       return 1;
 
     /* test if tag type is the same as the attribute type */
-    if (iTIFFGetDataType(fld->field_type) != data_type)
+    if (iTIFFGetDataType(TIFFFieldDataType(fld)) != data_type)
       return 1;
 
-    if (fld->field_passcount)
+    if (TIFFFieldPassCount(fld))
     {
-			if (fld->field_writecount == TIFF_VARIABLE2)
+			if (TIFFFieldWriteCount(fld) == TIFF_VARIABLE2)
       {
         uint32 value_count = (uint32)count;
-        if (TIFFSetField(tiff, fld->field_tag, value_count, data) != 1)
+        if (TIFFSetField(tiff, TIFFFieldTag(fld), value_count, data) != 1)
           return 1;
       }
       else
       {
         uint16 value_count = (uint16)count;
-        if (TIFFSetField(tiff, fld->field_tag, value_count, data) != 1)
+        if (TIFFSetField(tiff, TIFFFieldTag(fld), value_count, data) != 1)
           return 1;
       }
     } 
     else
     {
-      if (fld->field_tag == TIFFTAG_PAGENUMBER ||
-			    fld->field_tag == TIFFTAG_HALFTONEHINTS ||
-			    fld->field_tag == TIFFTAG_YCBCRSUBSAMPLING ||
-          fld->field_tag == TIFFTAG_DOTRANGE)
+      if (TIFFFieldTag(fld) == TIFFTAG_PAGENUMBER ||
+			    TIFFFieldTag(fld) == TIFFTAG_HALFTONEHINTS ||
+			    TIFFFieldTag(fld) == TIFFTAG_YCBCRSUBSAMPLING ||
+          TIFFFieldTag(fld) == TIFFTAG_DOTRANGE)
       {
         // there are 2 separated ushort values
         uint16* ushort_value = (uint16*)data;
-        TIFFSetField(tiff, fld->field_tag, ushort_value[0], ushort_value[1]);
+        TIFFSetField(tiff, TIFFFieldTag(fld), ushort_value[0], ushort_value[1]);
         return 1;
       }
 
-      if (count > 1 || fld->field_type == TIFF_ASCII)
-        TIFFSetField(tiff, fld->field_tag, data);
+      if (count > 1 || TIFFFieldDataType(fld) == TIFF_ASCII)
+        TIFFSetField(tiff, TIFFFieldTag(fld), data);
       else
       {
         switch(data_type)
@@ -331,37 +336,37 @@ static int iTIFFWriteTag(TIFF* tiff, int index, const char* name, int data_type,
         case IM_BYTE:
           {
             imbyte* byte_data = (imbyte*)data;
-            TIFFSetField(tiff, fld->field_tag, *byte_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *byte_data);
           }
           break;
         case IM_SHORT:
           {
             short* short_data = (short*)data;
-            TIFFSetField(tiff, fld->field_tag, *short_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *short_data);
           }
           break;
         case IM_USHORT:
           {
             imushort* short_data = (imushort*)data;
-            TIFFSetField(tiff, fld->field_tag, *short_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *short_data);
           }
           break;
         case IM_INT:
           {
             int* long_data = (int*)data;
-            TIFFSetField(tiff, fld->field_tag, *long_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *long_data);
           }
           break;
         case IM_FLOAT:
           {
             float* float_data = (float*)data;
-            TIFFSetField(tiff, fld->field_tag, *float_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *float_data);
           }
           break;
         case IM_DOUBLE:
           {
             double* double_data = (double*)data;
-            TIFFSetField(tiff, fld->field_tag, *double_data);
+            TIFFSetField(tiff, TIFFFieldTag(fld), *double_data);
           }
           break;
         default:
@@ -396,25 +401,25 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
       continue;
 
     /* offsets */
-    if (fld->field_tag == TIFFTAG_EXIFIFD ||         
-        fld->field_tag == TIFFTAG_GPSIFD ||          
-        fld->field_tag == TIFFTAG_INTEROPERABILITYIFD ||   
-	      fld->field_tag == TIFFTAG_SUBIFD ||          
-	      fld->field_tag == TIFFTAG_COLORMAP)
+    if (TIFFFieldTag(fld) == TIFFTAG_EXIFIFD ||         
+        TIFFFieldTag(fld) == TIFFTAG_GPSIFD ||          
+        TIFFFieldTag(fld) == TIFFTAG_INTEROPERABILITYIFD ||   
+	      TIFFFieldTag(fld) == TIFFTAG_SUBIFD ||          
+	      TIFFFieldTag(fld) == TIFFTAG_COLORMAP)
       continue;
         
     /* handled elsewhere */
-	  if (fld->field_tag == TIFFTAG_EXTRASAMPLES ||
-	      fld->field_tag == TIFFTAG_TRANSFERFUNCTION ||
-	      fld->field_tag == TIFFTAG_RESOLUTIONUNIT ||
-	      fld->field_tag == TIFFTAG_XRESOLUTION ||
-	      fld->field_tag == TIFFTAG_YRESOLUTION ||
-        fld->field_tag == TIFFTAG_INKNAMES)
+	  if (TIFFFieldTag(fld) == TIFFTAG_EXTRASAMPLES ||
+	      TIFFFieldTag(fld) == TIFFTAG_TRANSFERFUNCTION ||
+	      TIFFFieldTag(fld) == TIFFTAG_RESOLUTIONUNIT ||
+	      TIFFFieldTag(fld) == TIFFTAG_XRESOLUTION ||
+	      TIFFFieldTag(fld) == TIFFTAG_YRESOLUTION ||
+        TIFFFieldTag(fld) == TIFFTAG_INKNAMES)
       continue;
 
-      if (fld->field_tag == TIFFTAG_BLACKLEVEL ||
-          fld->field_tag == TIFFTAG_DEFAULTCROPSIZE ||
-          fld->field_tag == TIFFTAG_DEFAULTCROPORIGIN)
+      if (TIFFFieldTag(fld) == TIFFTAG_BLACKLEVEL ||
+          TIFFFieldTag(fld) == TIFFTAG_DEFAULTCROPSIZE ||
+          TIFFFieldTag(fld) == TIFFTAG_DEFAULTCROPORIGIN)
       {
         //TODO re-check this
         /* libTIFF issue. When reading custom tags there is an incorrect interpretation of the tag
@@ -422,16 +427,16 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
         continue;
       }
 
-    int data_type = iTIFFGetDataType(fld->field_type);
+    int data_type = iTIFFGetDataType(TIFFFieldDataType(fld));
     if (data_type == -1)
           continue;
 
     int data_count = -1;
     void* data = NULL;
 
-    if (fld->field_passcount)
+    if (TIFFFieldPassCount(fld))
     {
-			if (fld->field_readcount == TIFF_VARIABLE2)
+			if (TIFFFieldReadCount(fld) == TIFF_VARIABLE2)
       {
         uint32 value_count;
         if (TIFFGetField(tiff, tag, &value_count, &data) != 1)
@@ -447,28 +452,28 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
       }
 
       if (data && data_count > 0)
-        attrib_table->Set(fld->field_name, data_type, data_count, data);
+        attrib_table->Set(TIFFFieldName(fld), data_type, data_count, data);
     } 
     else
     {
-      data_count = fld->field_readcount;
+      data_count = TIFFFieldReadCount(fld);
 
-      if (fld->field_tag == TIFFTAG_PAGENUMBER ||
-			    fld->field_tag == TIFFTAG_HALFTONEHINTS ||
-			    fld->field_tag == TIFFTAG_YCBCRSUBSAMPLING ||
-          fld->field_tag == TIFFTAG_DOTRANGE)
+      if (TIFFFieldTag(fld) == TIFFTAG_PAGENUMBER ||
+			    TIFFFieldTag(fld) == TIFFTAG_HALFTONEHINTS ||
+			    TIFFFieldTag(fld) == TIFFTAG_YCBCRSUBSAMPLING ||
+          TIFFFieldTag(fld) == TIFFTAG_DOTRANGE)
       {
         // there are 2 separated ushort values
         uint16 ushort_value[2];
-        if (TIFFGetField(tiff, fld->field_tag, &ushort_value[0], &ushort_value[1]))
-          attrib_table->Set(fld->field_name, IM_USHORT, 2, ushort_value);
+        if (TIFFGetField(tiff, TIFFFieldTag(fld), &ushort_value[0], &ushort_value[1]))
+          attrib_table->Set(TIFFFieldName(fld), IM_USHORT, 2, ushort_value);
         continue;
       }
 
-		  if (fld->field_type == TIFF_ASCII ||
-		      fld->field_readcount == TIFF_VARIABLE ||
-		      fld->field_readcount == TIFF_VARIABLE2 ||
-		      fld->field_readcount == TIFF_SPP ||
+		  if (TIFFFieldDataType(fld) == TIFF_ASCII ||
+		      TIFFFieldReadCount(fld) == TIFF_VARIABLE ||
+		      TIFFFieldReadCount(fld) == TIFF_VARIABLE2 ||
+		      TIFFFieldReadCount(fld) == TIFF_SPP ||
 		      data_count > 1) 
       {
         if (TIFFGetField(tiff, tag, &data) != 1)
@@ -476,14 +481,14 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
 
         if (data)
         {
-          if (fld->field_type == TIFF_ASCII && data_count == -1)
+          if (TIFFFieldDataType(fld) == TIFF_ASCII && data_count == -1)
             data_count = (int)strlen((char*)data)+1;
 
           if (data_count > 0)
           {
             char* newstr = NULL;
 
-            if (fld->field_type == TIFF_ASCII && ((char*)data)[data_count-1] != 0)
+            if (TIFFFieldDataType(fld) == TIFF_ASCII && ((char*)data)[data_count-1] != 0)
             {
               int j = data_count-1;
               char* p = (char*)data;
@@ -491,9 +496,9 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
                 j--;
               if (j == 0)
               {
-                if (fld->field_tag == TIFFTAG_DATETIME ||
-			              fld->field_tag == EXIFTAG_DATETIMEORIGINAL ||
-                    fld->field_tag == EXIFTAG_DATETIMEDIGITIZED)
+                if (TIFFFieldTag(fld) == TIFFTAG_DATETIME ||
+			              TIFFFieldTag(fld) == EXIFTAG_DATETIMEORIGINAL ||
+                    TIFFFieldTag(fld) == EXIFTAG_DATETIMEDIGITIZED)
                 {
                   /* sometimes theses tags get non standard strings,
                       libTIIF does not returns the actual number os bytes read,
@@ -517,7 +522,7 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
                 data_count = j;
             }
 
-            attrib_table->Set(fld->field_name, data_type, data_count, data);
+            attrib_table->Set(TIFFFieldName(fld), data_type, data_count, data);
 
             if (newstr) free(newstr);
           }
@@ -528,7 +533,7 @@ static void iTIFFReadCustomTags(TIFF* tiff, imAttribTable* attrib_table)
         int size = imDataTypeSize(data_type);
         data = malloc(size);
         if (TIFFGetField(tiff, tag, data) == 1)
-          attrib_table->Set(fld->field_name, data_type, data_count, data);
+          attrib_table->Set(TIFFFieldName(fld), data_type, data_count, data);
         free(data);
         data = NULL;
       }
@@ -715,7 +720,7 @@ public:
 static void iTIFFDefaultDirectory(TIFF *tiff)
 {
   /* Install the IM Tag field info */
-  TIFFMergeFieldInfo(tiff, iTiffFieldInfo, TIFFArrayCount(iTiffFieldInfo));
+  TIFFMergeFieldInfo(tiff, iTiffFieldInfo, sizeof(iTiffFieldInfo) / sizeof(iTiffFieldInfo[0]));
 }
 
 void imFormatRegisterTIFF(void)
@@ -770,7 +775,7 @@ void imFileFormatTIFF::Close()
 void* imFileFormatTIFF::Handle(int index)
 {
   if (index == 0)
-    return (void*)this->tiff->tif_fd;
+    return (void*)TIFFClientdata(this->tiff);
   else if (index == 1)
     return (void*)this->tiff;
   else
@@ -1156,7 +1161,7 @@ int imFileFormatTIFF::WriteImageInfo()
   if (Compression == COMPRESSION_JPEG && Photometric == PHOTOMETRIC_RGB)
     Photometric = PHOTOMETRIC_YCBCR;
 
-  /* The “normal” PhotometricInterpretation for bilevel CCITT compressed data is WhiteIsZero.
+  /* The ï¿½normalï¿½ PhotometricInterpretation for bilevel CCITT compressed data is WhiteIsZero.
      Although TIFF readers should process PhotometricInterpretation in BlackIsZero as well,
      some applications assume WhiteIsZero. So if these compressions are used switch to WhiteIsZero. */
   if (imColorModeSpace(this->file_color_mode)==IM_BINARY && 

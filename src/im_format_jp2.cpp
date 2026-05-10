@@ -9,17 +9,104 @@
 #include "im_format_jp2.h"
 #include "im_util.h"
 #include "im_counter.h"
+#include "im_binfile.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include "jasper/jasper.h"
+#ifndef JASPER_SYSTEM_HEADER
 #include "jpc/jpc_enc.h"
 #include "jp2/jp2_cod.h"
+#endif
 
 
+#ifdef JASPER_SYSTEM_HEADER
+/* When linking against system libjasper, jas_stream_create / jas_stream_initbuf
+ * are no longer public, so we can't install custom callbacks the way the
+ * bundled jas_binfile.c did. Instead, route imBinFile traffic through the
+ * public jas_stream_memopen API by buffering the whole file. JP2 files are
+ * normally small enough that this is cheap. */
+struct iJP2BinFile
+{
+  imBinFile* binfile;       /* owns the underlying I/O target */
+  jas_stream_t* stream;     /* memory-backed stream handed to jasper */
+  char* buffer;             /* read-mode: owned buffer backing `stream` */
+  int writing;
+};
+
+static iJP2BinFile* iJP2BinFileOpen(const char* file_name, int is_new)
+{
+  iJP2BinFile* p = (iJP2BinFile*)calloc(1, sizeof(*p));
+  if (!p) return NULL;
+
+  p->writing = is_new;
+
+  if (is_new)
+  {
+    p->binfile = imBinFileNew(file_name);
+    if (!p->binfile) { free(p); return NULL; }
+    p->stream = jas_stream_memopen(NULL, 0);  /* growable */
+  }
+  else
+  {
+    p->binfile = imBinFileOpen(file_name);
+    if (!p->binfile) { free(p); return NULL; }
+
+    unsigned long size = imBinFileSize(p->binfile);
+    p->buffer = (char*)malloc(size ? size : 1);
+    if (!p->buffer ||
+        imBinFileRead(p->binfile, p->buffer, size, 1) != size)
+    {
+      free(p->buffer);
+      imBinFileClose(p->binfile);
+      free(p);
+      return NULL;
+    }
+    p->stream = jas_stream_memopen(p->buffer, (size_t)size);
+  }
+
+  if (!p->stream)
+  {
+    free(p->buffer);
+    imBinFileClose(p->binfile);
+    free(p);
+    return NULL;
+  }
+  return p;
+}
+
+/* For write-mode handles, drain jasper's growable buffer into the imBinFile
+ * before tearing the stream down. */
+static void iJP2BinFileClose(iJP2BinFile* p)
+{
+  if (!p) return;
+
+  if (p->stream && p->writing && p->binfile)
+  {
+    long sz = jas_stream_tell(p->stream);
+    if (sz > 0)
+    {
+      jas_stream_seek(p->stream, 0, SEEK_SET);
+      char* out = (char*)malloc((size_t)sz);
+      if (out)
+      {
+        size_t got = jas_stream_read(p->stream, out, (size_t)sz);
+        if (got > 0)
+          imBinFileWrite(p->binfile, out, (unsigned long)got, 1);
+        free(out);
+      }
+    }
+  }
+
+  if (p->stream) jas_stream_close(p->stream);
+  if (p->binfile) imBinFileClose(p->binfile);
+  free(p->buffer);
+  free(p);
+}
+#else
 #ifdef JAS_BINFILE
-extern "C" 
+extern "C"
 {
   /* implemented in jas_binfile.c */
   jas_stream_t* jas_binfile_open(const char *file_name, int is_new);
@@ -32,6 +119,7 @@ static jas_stream_t* jas_binfile_open(const char *file_name, int is_new)
   else
     return jas_stream_fopen(file_name, "rb");
 }
+#endif
 #endif
 
 
@@ -119,9 +207,17 @@ class imFileFormatJP2: public imFileFormatBase
   int fmtid;
   jas_stream_t *stream;
   jas_image_t *image;
+#ifdef JASPER_SYSTEM_HEADER
+  iJP2BinFile *binwrap;
+#endif
 
 public:
-  imFileFormatJP2(const imFormat* _iformat) : imFileFormatBase(_iformat), image(0), stream(0), fmtid(-1) {}
+  imFileFormatJP2(const imFormat* _iformat) : imFileFormatBase(_iformat),
+    fmtid(-1), stream(0), image(0)
+#ifdef JASPER_SYSTEM_HEADER
+    , binwrap(0)
+#endif
+    {}
   ~imFileFormatJP2() {}
 
   int Open(const char* file_name);
@@ -192,14 +288,26 @@ void imFormatRegisterJP2(void)
 
 int imFileFormatJP2::Open(const char* file_name)
 {
+#ifdef JASPER_SYSTEM_HEADER
+  this->binwrap = iJP2BinFileOpen(file_name, 0);
+  if (!this->binwrap)
+    return IM_ERR_OPEN;
+  this->stream = this->binwrap->stream;
+#else
   this->stream = jas_binfile_open(file_name, 0);
   if (this->stream == NULL)
     return IM_ERR_OPEN;
+#endif
 
   this->fmtid = jas_image_getfmt(this->stream);
   if (this->fmtid < 0)
   {
+#ifdef JASPER_SYSTEM_HEADER
+    iJP2BinFileClose(this->binwrap);
+    this->binwrap = NULL;
+#else
     jas_stream_close(this->stream);
+#endif
     this->stream = NULL;
     return IM_ERR_FORMAT;
   }
@@ -212,9 +320,16 @@ int imFileFormatJP2::Open(const char* file_name)
 
 int imFileFormatJP2::New(const char* file_name)
 {
+#ifdef JASPER_SYSTEM_HEADER
+  this->binwrap = iJP2BinFileOpen(file_name, 1);
+  if (!this->binwrap)
+    return IM_ERR_OPEN;
+  this->stream = this->binwrap->stream;
+#else
   this->stream = jas_binfile_open(file_name, 1);
   if (this->stream == NULL)
     return IM_ERR_OPEN;
+#endif
 
   strcpy(this->compression, "JPEG-2000");
   this->image_count = 1;
@@ -225,16 +340,34 @@ int imFileFormatJP2::New(const char* file_name)
 void imFileFormatJP2::Close()
 {
   if (this->image)
+  {
     jas_image_destroy(this->image);
+    this->image = NULL;
+  }
 
-  jas_stream_close(this->stream);
+#ifdef JASPER_SYSTEM_HEADER
+  /* iJP2BinFileClose flushes the encoded buffer (write mode), then closes the
+   * jasper stream and the underlying imBinFile. */
+  iJP2BinFileClose(this->binwrap);
+  this->binwrap = NULL;
   this->stream = NULL;
+#else
+  if (this->stream)
+  {
+    jas_stream_close(this->stream);
+    this->stream = NULL;
+  }
+#endif
 }
 
 void* imFileFormatJP2::Handle(int index)
 {
   if (index == 0)
+#ifdef JASPER_SYSTEM_HEADER
+    return this->binwrap ? (void*)this->binwrap->binfile : NULL;
+#else
     return (void*)this->stream->obj_;
+#endif
   else if (index == 1)
     return (void*)this->image;
   else if (index == 2)
@@ -502,7 +635,12 @@ int imFileFormatJP2::WriteImageData(void* data)
   ijp2_abort = 0;
   ijp2_message = NULL;  /* other counts */
 #endif
-  int err = jas_image_encode(image, stream, 0 /*JP2 format always */, outopts);
+  /* Format IDs in modern jasper aren't fixed; resolve "jp2" by name. The
+   * legacy bundled jasper happened to assign JP2 to slot 0. */
+  int jp2_fmt = jas_image_strtofmt((char*)"jp2");
+  if (jp2_fmt < 0)
+    return IM_ERR_ACCESS;
+  int err = jas_image_encode(image, stream, jp2_fmt, outopts);
 #ifndef JASPER_2
   ijp2_counter = -1;
 #endif
