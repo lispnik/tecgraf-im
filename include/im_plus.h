@@ -361,31 +361,37 @@ namespace im
       {
         unsigned char *bdata = (unsigned char*)channel_buffer;
         bdata[index] = (unsigned char)value;
+        break;
       }
       case IM_SHORT:
       {
         short *sdata = (short*)channel_buffer;
         sdata[index] = (short)value;
+        break;
       }
       case IM_USHORT:
       {
         unsigned short *udata = (unsigned short*)channel_buffer;
         udata[index] = (unsigned short)value;
+        break;
       }
       case IM_INT:
       {
         int *idata = (int*)channel_buffer;
         idata[index] = (int)value;
+        break;
       }
       case IM_FLOAT:
       {
         float *fdata = (float*)channel_buffer;
         fdata[index] = (float)value;
+        break;
       }
       case IM_DOUBLE:
       {
         double *fdata = (double*)channel_buffer;
         fdata[index] = value;
+        break;
       }
       }
     }

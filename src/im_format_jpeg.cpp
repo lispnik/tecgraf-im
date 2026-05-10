@@ -21,8 +21,6 @@
 
 extern "C" {
 #include "jpeglib.h"
-#include "jinclude.h"
-#include "jpeglib.h"
 #include "jerror.h"
 }
              

@@ -180,10 +180,12 @@ int imFileFormatKRN::WriteImageInfo()
   imBinFilePrintf(handle, "%d\n", this->width);
   imBinFilePrintf(handle, "%d\n", this->height);
 
+  /* count must be 2 — count=1 silently truncates the newline, fusing
+   * the type tag into the first kernel value and breaking the reader. */
   if (this->file_data_type == IM_INT)
-    imBinFileWrite(handle, (void*)"0\n", 1, 1);
+    imBinFileWrite(handle, (void*)"0\n", 2, 1);
   else
-    imBinFileWrite(handle, (void*)"1\n", 1, 1);
+    imBinFileWrite(handle, (void*)"1\n", 2, 1);
   
   /* tests if everything was ok */
   if (imBinFileError(handle))

@@ -32,7 +32,11 @@ class imFileFormatRAW: public imFileFormatBase
   int iRawUpdateParam(int index);
 
 public:
-  imFileFormatRAW(const imFormat* _iformat): imFileFormatBase(_iformat) {}
+  /* padding/rgb16 must be zero-initialized: iRawUpdateParam only assigns
+   * rgb16 on the IM_RGB+packed branch, so a grayscale read would otherwise
+   * pick up heap garbage and trigger the RGB16 byte-swap on the line buffer. */
+  imFileFormatRAW(const imFormat* _iformat)
+    : imFileFormatBase(_iformat), padding(0), rgb16(0) {}
   ~imFileFormatRAW() {}
 
   int Open(const char* file_name);
