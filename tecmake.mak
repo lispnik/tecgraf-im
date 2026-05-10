@@ -756,12 +756,14 @@ ifneq ($(findstring SunOS, $(TEC_UNAME)), )
 endif
 
 ifneq ($(findstring MacOS, $(TEC_UNAME)), )
-  #Homebrew
-  #STDINCS += /usr/local/include
-  #LDIR += /usr/local/lib
-  #Fink
-  STDINCS += /sw/include
-  LDIR += /sw/lib
+  # Homebrew (Apple Silicon at /opt/homebrew, Intel at /usr/local)
+  ifneq ($(wildcard /opt/homebrew/include),)
+    STDINCS += /opt/homebrew/include
+    LDIR += /opt/homebrew/lib
+  else
+    STDINCS += /usr/local/include
+    LDIR += /usr/local/lib
+  endif
   
   UNIX_BSD = Yes
   X11_LIBS := Xp Xext X11
@@ -770,7 +772,7 @@ ifneq ($(findstring MacOS, $(TEC_UNAME)), )
   MOTIF_INC := /usr/OpenMotif/include
   MOTIF_LIB := /usr/OpenMotif/lib
   ifdef BUILD_DYLIB
-    STDLDFLAGS := -dynamiclib -Wl -fno-common -headerpad_max_install_names -undefined dynamic_lookup -install_name lib$(TARGETNAME).dylib
+    STDLDFLAGS := -dynamiclib -Wl -fno-common -headerpad_max_install_names -undefined dynamic_lookup -install_name @rpath/lib$(TARGETNAME).dylib
     DLIBEXT := dylib
     STDFLAGS += -fno-common
   else
@@ -787,8 +789,19 @@ ifneq ($(findstring MacOS, $(TEC_UNAME)), )
     endif
   endif
   ifdef USE_OPENMP
-    STDFLAGS += -fopenmp
-    LIBS += gomp
+    # Apple clang needs Homebrew libomp; gcc/clang elsewhere accept -fopenmp directly.
+    ifneq ($(wildcard /opt/homebrew/opt/libomp),)
+      STDFLAGS += -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
+      STDLDFLAGS += -L/opt/homebrew/opt/libomp/lib
+      LIBS += omp
+    else ifneq ($(wildcard /usr/local/opt/libomp),)
+      STDFLAGS += -Xpreprocessor -fopenmp -I/usr/local/opt/libomp/include
+      STDLDFLAGS += -L/usr/local/opt/libomp/lib
+      LIBS += omp
+    else
+      STDFLAGS += -fopenmp
+      LIBS += gomp
+    endif
   endif
 endif
 
