@@ -5,11 +5,13 @@ on:
     branches:
       - master
       - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
       - 'ci-*'
   pull_request:
     branches:
       - master
       - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
   workflow_dispatch:
 
 jobs:
@@ -30,47 +32,53 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config \
-            libtiff-dev \
-            libjpeg-dev \
-            libpng-dev \
-            libexif-dev \
-            liblzf-dev \
-            liblz4-dev \
-            libfftw3-dev \
-            libomp-dev
+            cmake ninja-build pkg-config \
+            libtiff-dev libjpeg-dev libpng-dev \
+            libexif-dev liblzf-dev liblz4-dev \
+            libfftw3-dev libomp-dev \
+            liblua5.4-dev lua5.4
           # libjasper-dev was dropped from Ubuntu after 18.04 due to
-          # unfixed CVEs; im_jp2 cannot be built from system libs on
-          # this image and is intentionally skipped below.
+          # unfixed CVEs; libim_jp2 can't be built from system libs here.
 
-      - name: Build core IM libraries
-        working-directory: src
+      - name: Configure
         run: |
-          # USE_SYSTEM_IMAGE_LIBS auto-enables for Linux in config.mak.
-          # Build the libraries we have system deps for; im_jp2 is
-          # skipped (no system libjasper).
-          make im
-          make im_process
-          make im_process_omp
-          make im_fftw3
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DIM_BUILD_JP2=OFF
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Smoke-test Lua bindings
+        run: |
+          cat > smoke.lua <<'EOF'
+          package.cpath = "build/lib/?.so;" .. package.cpath
+          local im = require "imlua"
+          print("imlua loaded, version =", im.Version())
+          local img = im.ImageCreate(16, 12, im.RGB, im.BYTE)
+          assert(img:Width() == 16 and img:Height() == 12)
+          img:Destroy()
+          local imp = require "imlua_process"
+          assert(type(imp.ProcessUnArithmeticOp) == "function")
+          print("ok")
+          EOF
+          lua5.4 smoke.lua
 
       - name: Show build artefacts
         run: |
           set -e
           shopt -s nullglob
-          for lib in lib/*/lib*.so lib/*/lib*.a; do
+          for lib in build/lib/lib*.so; do
             echo "=== $lib ==="
             file "$lib"
-            if [ "${lib##*.}" = "so" ]; then
-              ldd "$lib" | head -20 || true
-            fi
+            ldd "$lib" | head -20 || true
           done
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4
         with:
           name: im-libs-ubuntu-${{ matrix.os }}
-          path: lib/
+          path: build/lib/
           retention-days: 14
           if-no-files-found: error
 
