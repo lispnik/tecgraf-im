@@ -29,6 +29,22 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Activate MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+        # Without this step CMake picks up C:/mingw64/bin/cc.exe by
+        # default; vcpkg's x64-windows triplet ships MSVC-built libs
+        # that won't link against MinGW.
+
+      - name: Install pkg-config
+        shell: pwsh
+        run: |
+          # Windows runners don't ship pkg-config; libexif / jasper /
+          # fftw3 detection in CMakeLists uses pkg_check_modules and
+          # therefore needs it on PATH.
+          choco install pkgconfiglite -y --no-progress
+
       - name: Locate vcpkg
         id: vcpkg
         shell: pwsh
