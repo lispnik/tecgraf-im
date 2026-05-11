@@ -42,9 +42,13 @@ jobs:
         with:
           arch: x64
 
-      - name: Install pkg-config
+      - name: Install pkg-config and a Lua interpreter
         shell: pwsh
-        run: choco install pkgconfiglite -y --no-progress
+        run: |
+          # pkgconfiglite for CMakeLists' pkg_check_modules calls.
+          # Lua via chocolatey because vcpkg's lua port ships the lib
+          # but no lua.exe binary in tools/.
+          choco install pkgconfiglite lua -y --no-progress
 
       - name: Set up vcpkg binary cache directory
         shell: pwsh
@@ -90,11 +94,9 @@ jobs:
       - name: Smoke-test Lua bindings
         shell: pwsh
         run: |
-          $lua = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/lua/lua.exe"
-          if (-not (Test-Path $lua)) {
-            Write-Host "no lua interpreter from vcpkg; skipping Lua smoke test"
-            exit 0
-          }
+          # The vcpkg lua port is built against vcpkg's lua DLL, but
+          # the chocolatey lua package ships a self-contained
+          # interpreter that's good enough for a smoke test.
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$PWD/build/lib;" + $env:PATH
           @"
           package.cpath = "build/lib/?.dll;" .. package.cpath
@@ -107,7 +109,7 @@ jobs:
           assert(type(imp.ProcessUnArithmeticOp) == "function")
           print("ok")
           "@ | Out-File -Encoding ascii smoke.lua
-          & $lua smoke.lua
+          lua smoke.lua
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4
