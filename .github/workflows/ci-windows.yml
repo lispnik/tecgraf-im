@@ -1,0 +1,115 @@
+name: CI (Windows)
+
+on:
+  push:
+    branches:
+      - master
+      - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
+      - 'ci-*'
+  pull_request:
+    branches:
+      - master
+      - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
+  workflow_dispatch:
+
+env:
+  # vcpkg ports the IM build depends on. liblzf is intentionally
+  # absent — no vcpkg port exists, so the CMakeLists falls back to
+  # the bundled src/liblzf/ tree.
+  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua
+
+jobs:
+  build:
+    name: Build IM (windows-2022)
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Cache vcpkg installed/
+        uses: actions/cache@v4
+        with:
+          # actions/cache + vcpkg requires caching both the installed/
+          # tree and the buildtrees so source recompilation is skipped
+          # on subsequent runs. The cache key is keyed off the dep list
+          # plus the runner image so OS upgrades invalidate cleanly.
+          path: |
+            C:/vcpkg/installed
+            C:/vcpkg/packages
+          key: vcpkg-windows-2022-${{ hashFiles('.github/workflows/ci-windows.yml') }}
+          restore-keys: |
+            vcpkg-windows-2022-
+
+      - name: Install vcpkg dependencies
+        shell: cmd
+        run: |
+          cd C:\vcpkg
+          .\vcpkg.exe install --triplet x64-windows ${{ env.VCPKG_DEPS }}
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          # The vcpkg toolchain file routes find_package and
+          # pkg_check_modules through the installed/ tree.
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Show build artefacts
+        shell: pwsh
+        run: |
+          Get-ChildItem build/lib -Recurse | Format-Table FullName, Length
+          # Inspect .dll dependencies the same way `ldd` would on Linux.
+          Get-ChildItem build/lib/*.dll | ForEach-Object {
+            Write-Host "=== $($_.Name) ==="
+            & dumpbin /DEPENDENTS $_.FullName | Select-String -Pattern '\.dll$'
+          }
+
+      - name: Smoke-test Lua bindings
+        shell: pwsh
+        run: |
+          # Lua 5.5 from vcpkg may break IM at compile time; if the
+          # build picks 5.5 we keep this step as a no-op for now.
+          $lua = "C:/vcpkg/installed/x64-windows/tools/lua/lua.exe"
+          if (-not (Test-Path $lua)) {
+            Write-Host "no lua interpreter from vcpkg; skipping Lua smoke test"
+            exit 0
+          }
+          # vcpkg drops DLLs in installed/<triplet>/bin; add it to PATH
+          # so dependent DLLs (zlib, libpng, etc.) load.
+          $env:PATH = "C:/vcpkg/installed/x64-windows/bin;build/lib;" + $env:PATH
+          @"
+          package.cpath = "build/lib/?.dll;" .. package.cpath
+          local im = require "imlua"
+          print("imlua loaded, version =", im.Version())
+          local img = im.ImageCreate(16, 12, im.RGB, im.BYTE)
+          assert(img:Width() == 16 and img:Height() == 12)
+          img:Destroy()
+          local imp = require "imlua_process"
+          assert(type(imp.ProcessUnArithmeticOp) == "function")
+          print("ok")
+          "@ | Out-File -Encoding ascii smoke.lua
+          & $lua smoke.lua
+
+      - name: Upload IM libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: im-libs-windows-2022
+          path: build/lib/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload IM headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: im-headers-windows-2022
+          path: include/
+          retention-days: 14
+          if-no-files-found: error

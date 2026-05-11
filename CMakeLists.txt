@@ -28,6 +28,14 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 # Pair with INSTALL_RPATH so consumers built via this tree resolve
 # transitive deps without a separate fix-install-names pass.
 if(APPLE)
+    # By default CMake on macOS searches *.framework before normal
+    # include paths, which means find_package(PNG) etc. can pick up
+    # an old libpng inside a third-party framework (e.g. Mono's
+    # libpng-1.4.12 framework header against Homebrew's libpng-1.6.x
+    # dylib) and produce a hard-to-debug ABI mismatch at runtime.
+    # Make frameworks the last resort.
+    set(CMAKE_FIND_FRAMEWORK LAST)
+
     set(CMAKE_MACOSX_RPATH ON)
     # Embed the absolute build path as the install_name so the dylibs
     # are loadable from runtimes without their own rpath (e.g. SBCL via
@@ -68,19 +76,39 @@ foreach(_d ${LIBEXIF_INCLUDE_DIRS})
     endif()
 endforeach()
 
-# liblzf: Debian / Ubuntu ship a pkg-config file (and put the header
-# under <prefix>/include/liblzf/); Homebrew installs lzf.h at the
-# include root with no pkg-config. Try pkg-config first then fall
-# back to a manual probe so both work.
-pkg_check_modules(LIBLZF QUIET IMPORTED_TARGET liblzf)
-if(NOT LIBLZF_FOUND)
-    find_path(LIBLZF_INCLUDE_DIR lzf.h
-        HINTS /opt/homebrew/include /usr/include /usr/local/include
-              /usr/include/liblzf)
-    find_library(LIBLZF_LIBRARY NAMES lzf
-        HINTS /opt/homebrew/lib /usr/lib /usr/local/lib)
-    if(NOT LIBLZF_INCLUDE_DIR OR NOT LIBLZF_LIBRARY)
-        message(FATAL_ERROR "liblzf not found (looking for lzf.h and liblzf.{so,dylib})")
+# liblzf: Debian / Ubuntu ship a pkg-config file (header under
+# <prefix>/include/liblzf/); Homebrew installs lzf.h at the include
+# root with no pkg-config; vcpkg and MSYS2 don't ship liblzf at all.
+# Try pkg-config first, then a manual probe, then fall back to the
+# vendored 4-file copy under src/liblzf/ (only relevant for Windows
+# in practice). The bundled fallback can be forced for testing with
+# -DIM_BUNDLE_LZF=ON.
+option(IM_BUNDLE_LZF "Always compile liblzf from src/liblzf/ instead of using a system copy" OFF)
+
+if(NOT IM_BUNDLE_LZF)
+    pkg_check_modules(LIBLZF QUIET IMPORTED_TARGET liblzf)
+    if(NOT LIBLZF_FOUND)
+        find_path(LIBLZF_INCLUDE_DIR lzf.h
+            HINTS /opt/homebrew/include /usr/include /usr/local/include
+                  /usr/include/liblzf)
+        find_library(LIBLZF_LIBRARY NAMES lzf
+            HINTS /opt/homebrew/lib /usr/lib /usr/local/lib)
+    endif()
+endif()
+
+if(IM_BUNDLE_LZF OR (NOT LIBLZF_FOUND AND NOT LIBLZF_INCLUDE_DIR))
+    if(EXISTS "${CMAKE_SOURCE_DIR}/src/liblzf/lzf.h")
+        message(STATUS "liblzf: compiling from bundled src/liblzf/")
+        add_library(lzf_bundled STATIC
+            src/liblzf/lzf_c.c
+            src/liblzf/lzf_d.c)
+        target_include_directories(lzf_bundled
+            PUBLIC ${CMAKE_SOURCE_DIR}/src/liblzf)
+        set_target_properties(lzf_bundled PROPERTIES
+            POSITION_INDEPENDENT_CODE ON)
+        set(IM_LZF_TARGET lzf_bundled)
+    else()
+        message(FATAL_ERROR "liblzf not found and no bundled tree at src/liblzf/.")
     endif()
 endif()
 
@@ -125,7 +153,9 @@ target_link_libraries(im
             PkgConfig::LIBEXIF
             PkgConfig::LIBLZ4)
 
-if(LIBLZF_FOUND)
+if(IM_LZF_TARGET)
+    target_link_libraries(im PRIVATE ${IM_LZF_TARGET})
+elseif(LIBLZF_FOUND)
     target_link_libraries(im PRIVATE PkgConfig::LIBLZF)
 else()
     target_include_directories(im PRIVATE ${LIBLZF_INCLUDE_DIR})
