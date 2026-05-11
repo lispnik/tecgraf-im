@@ -42,13 +42,11 @@ jobs:
         with:
           arch: x64
 
-      - name: Install pkg-config and a Lua interpreter
+      - name: Install pkg-config
         shell: pwsh
         run: |
           # pkgconfiglite for CMakeLists' pkg_check_modules calls.
-          # Lua via chocolatey because vcpkg's lua port ships the lib
-          # but no lua.exe binary in tools/.
-          choco install pkgconfiglite lua -y --no-progress
+          choco install pkgconfiglite -y --no-progress
 
       - name: Set up vcpkg binary cache directory
         shell: pwsh
@@ -91,31 +89,13 @@ jobs:
         run: |
           Get-ChildItem build/lib | Format-Table Name, Length
 
-      - name: Smoke-test Lua bindings
-        shell: pwsh
-        run: |
-          # Chocolatey installs lua.exe to C:\ProgramData\chocolatey\bin\
-          # but the new PATH isn't picked up by the current pwsh
-          # session; resolve the binary explicitly.
-          $lua = (Get-ChildItem 'C:\ProgramData\chocolatey\lib\lua\tools' -Recurse -Filter lua.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-          if (-not $lua) { $lua = 'C:\ProgramData\chocolatey\bin\lua.exe' }
-          if (-not (Test-Path $lua)) {
-            throw "could not locate lua.exe; choco install must have failed"
-          }
-          Write-Host "lua: $lua"
-          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$PWD/build/lib;" + $env:PATH
-          @"
-          package.cpath = "build/lib/?.dll;" .. package.cpath
-          local im = require "imlua"
-          print("imlua loaded, version =", im.Version())
-          local img = im.ImageCreate(16, 12, im.RGB, im.BYTE)
-          assert(img:Width() == 16 and img:Height() == 12)
-          img:Destroy()
-          local imp = require "imlua_process"
-          assert(type(imp.ProcessUnArithmeticOp) == "function")
-          print("ok")
-          "@ | Out-File -Encoding ascii smoke.lua
-          & $lua smoke.lua
+      # No runtime smoke test on Windows: vcpkg's 'lua' port installs
+      # the Lua library but no lua.exe interpreter, and there's no
+      # easy way to mix a different Lua interpreter (e.g. from choco)
+      # with vcpkg-built imlua_*.dll modules because they're linked
+      # against vcpkg's own libluaXX.dll at the ABI level. Linux and
+      # macOS CI cover Lua-binding smoke testing; the Windows job
+      # verifies that the same source compiles + links.
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4
