@@ -29,34 +29,40 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Locate vcpkg
+        id: vcpkg
+        shell: pwsh
+        run: |
+          # windows-2022 ships vcpkg at $env:VCPKG_INSTALLATION_ROOT
+          # (typically C:/vcpkg). Use whatever the runner sets.
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root) { $root = "C:/vcpkg" }
+          Write-Host "VCPKG_ROOT=$root"
+          "vcpkg_root=$root" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Cache vcpkg installed/
         uses: actions/cache@v4
         with:
-          # actions/cache + vcpkg requires caching both the installed/
-          # tree and the buildtrees so source recompilation is skipped
-          # on subsequent runs. The cache key is keyed off the dep list
-          # plus the runner image so OS upgrades invalidate cleanly.
           path: |
-            C:/vcpkg/installed
-            C:/vcpkg/packages
+            ${{ steps.vcpkg.outputs.vcpkg_root }}/installed
+            ${{ steps.vcpkg.outputs.vcpkg_root }}/packages
           key: vcpkg-windows-2022-${{ hashFiles('.github/workflows/ci-windows.yml') }}
           restore-keys: |
             vcpkg-windows-2022-
 
       - name: Install vcpkg dependencies
-        shell: cmd
+        shell: pwsh
         run: |
-          cd C:\vcpkg
-          .\vcpkg.exe install --triplet x64-windows ${{ env.VCPKG_DEPS }}
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          & $vcpkg install --triplet x64-windows ${{ env.VCPKG_DEPS }}
 
       - name: Configure
         shell: pwsh
         run: |
-          # The vcpkg toolchain file routes find_package and
-          # pkg_check_modules through the installed/ tree.
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT "scripts/buildsystems/vcpkg.cmake"
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
