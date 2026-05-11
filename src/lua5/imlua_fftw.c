@@ -148,6 +148,15 @@ int imlua_open_fftw (lua_State *L)
   return 1;
 }
 
+/* The compiled module ships as imlua_fftw3.{dylib,so,dll} (matching
+ * the libim_fftw3 C library name); require("imlua_fftw3") asks Lua
+ * for luaopen_imlua_fftw3 specifically. Provide both that name and
+ * the historical luaopen_imlua_fftw for backwards compatibility. */
+int luaopen_imlua_fftw3(lua_State *L)
+{
+  return imlua_open_fftw(L);
+}
+
 int luaopen_imlua_fftw(lua_State *L)
 {
   return imlua_open_fftw(L);
