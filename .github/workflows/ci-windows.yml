@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 env:
-  # vcpkg ports the IM build depends on. liblzf is intentionally
+  # vcpkg ports the IM build links against. liblzf is intentionally
   # absent — no vcpkg port exists, so the CMakeLists falls back to
   # the bundled src/liblzf/ tree.
   VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua
@@ -25,6 +25,14 @@ jobs:
     name: Build IM (windows-2022)
     runs-on: windows-2022
 
+    env:
+      # Tell vcpkg to put per-port build artefacts in a fixed location
+      # so we can round-trip them through actions/cache. Without this
+      # vcpkg falls back to %LOCALAPPDATA%/vcpkg/archives which is
+      # hardware-specific and not always cacheable.
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite'
+
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -33,38 +41,28 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-        # Without this step CMake picks up C:/mingw64/bin/cc.exe by
-        # default; vcpkg's x64-windows triplet ships MSVC-built libs
-        # that won't link against MinGW.
 
       - name: Install pkg-config
         shell: pwsh
-        run: |
-          # Windows runners don't ship pkg-config; libexif / jasper /
-          # fftw3 detection in CMakeLists uses pkg_check_modules and
-          # therefore needs it on PATH.
-          choco install pkgconfiglite -y --no-progress
+        run: choco install pkgconfiglite -y --no-progress
 
-      - name: Locate vcpkg
-        id: vcpkg
+      - name: Set up vcpkg binary cache directory
         shell: pwsh
         run: |
-          # windows-2022 ships vcpkg at $env:VCPKG_INSTALLATION_ROOT
-          # (typically C:/vcpkg). Use whatever the runner sets.
-          $root = $env:VCPKG_INSTALLATION_ROOT
-          if (-not $root) { $root = "C:/vcpkg" }
-          Write-Host "VCPKG_ROOT=$root"
-          "vcpkg_root=$root" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          New-Item -ItemType Directory -Force "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}" | Out-Null
 
-      - name: Cache vcpkg installed/
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.vcpkg.outputs.vcpkg_root }}/installed
-            ${{ steps.vcpkg.outputs.vcpkg_root }}/packages
-          key: vcpkg-windows-2022-${{ hashFiles('.github/workflows/ci-windows.yml') }}
+          # vcpkg's binary cache stores per-port .zip archives keyed
+          # by ABI hash. Restoring this skips the "compile from source"
+          # phase on subsequent runs — first-run is ~15 min, cached
+          # runs are ~30 s.
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-binary-cache-windows-2022-${{ env.VCPKG_DEPS }}-v1
           restore-keys: |
-            vcpkg-windows-2022-
+            vcpkg-binary-cache-windows-2022-
 
       - name: Install vcpkg dependencies
         shell: pwsh
@@ -87,26 +85,17 @@ jobs:
       - name: Show build artefacts
         shell: pwsh
         run: |
-          Get-ChildItem build/lib -Recurse | Format-Table FullName, Length
-          # Inspect .dll dependencies the same way `ldd` would on Linux.
-          Get-ChildItem build/lib/*.dll | ForEach-Object {
-            Write-Host "=== $($_.Name) ==="
-            & dumpbin /DEPENDENTS $_.FullName | Select-String -Pattern '\.dll$'
-          }
+          Get-ChildItem build/lib | Format-Table Name, Length
 
       - name: Smoke-test Lua bindings
         shell: pwsh
         run: |
-          # Lua 5.5 from vcpkg may break IM at compile time; if the
-          # build picks 5.5 we keep this step as a no-op for now.
-          $lua = "C:/vcpkg/installed/x64-windows/tools/lua/lua.exe"
+          $lua = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/lua/lua.exe"
           if (-not (Test-Path $lua)) {
             Write-Host "no lua interpreter from vcpkg; skipping Lua smoke test"
             exit 0
           }
-          # vcpkg drops DLLs in installed/<triplet>/bin; add it to PATH
-          # so dependent DLLs (zlib, libpng, etc.) load.
-          $env:PATH = "C:/vcpkg/installed/x64-windows/bin;build/lib;" + $env:PATH
+          $env:PATH = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$PWD/build/lib;" + $env:PATH
           @"
           package.cpath = "build/lib/?.dll;" .. package.cpath
           local im = require "imlua"
