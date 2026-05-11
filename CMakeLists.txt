@@ -116,6 +116,16 @@ endif()
 # libim (core)
 # ----------------------------------------------------------------------
 
+# On Windows, MSVC's link.exe only emits an .lib import library if
+# the DLL actually exports symbols. IM relies on per-library .def
+# files (rather than __declspec(dllexport) annotations) for that.
+# Add each target's .def file to its source list on WIN32.
+function(im_add_def_file target def_path)
+    if(WIN32)
+        target_sources(${target} PRIVATE "${def_path}")
+    endif()
+endfunction()
+
 set(IM_SOURCES
     src/im_oldcolor.c        src/im_oldresize.c     src/im_converttype.cpp
     src/im_attrib.cpp        src/im_format.cpp      src/im_format_tga.cpp
@@ -141,6 +151,7 @@ else()
 endif()
 
 add_library(im SHARED ${IM_SOURCES})
+im_add_def_file(im "${CMAKE_SOURCE_DIR}/src/im.def")
 
 target_include_directories(im
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
@@ -188,6 +199,7 @@ set(IM_PROCESS_SOURCES
 
 if(IM_BUILD_PROCESS)
     add_library(im_process SHARED ${IM_PROCESS_SOURCES})
+    im_add_def_file(im_process "${CMAKE_SOURCE_DIR}/src/im_process.def")
     target_include_directories(im_process
         PRIVATE ${CMAKE_SOURCE_DIR}/include
                 ${CMAKE_SOURCE_DIR}/src/process)
@@ -215,6 +227,8 @@ if(IM_BUILD_PROCESS_OMP)
 
     find_package(OpenMP REQUIRED COMPONENTS CXX)
     add_library(im_process_omp SHARED ${IM_PROCESS_SOURCES})
+    # Same export list as im_process; tecmake shared the .def file too.
+    im_add_def_file(im_process_omp "${CMAKE_SOURCE_DIR}/src/im_process.def")
     target_include_directories(im_process_omp
         PRIVATE ${CMAKE_SOURCE_DIR}/include
                 ${CMAKE_SOURCE_DIR}/src/process)
@@ -243,6 +257,7 @@ if(IM_BUILD_JP2)
     endif()
 
     add_library(im_jp2 SHARED src/im_format_jp2.cpp)
+    im_add_def_file(im_jp2 "${CMAKE_SOURCE_DIR}/src/im_jp2.def")
     target_include_directories(im_jp2 PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_compile_definitions(im_jp2 PRIVATE JASPER_SYSTEM_HEADER JASPER_2)
     if(JASPER_FOUND)
@@ -261,6 +276,7 @@ if(IM_BUILD_FFTW3)
     pkg_check_modules(FFTW3  REQUIRED IMPORTED_TARGET fftw3)
     pkg_check_modules(FFTW3F REQUIRED IMPORTED_TARGET fftw3f)
     add_library(im_fftw3 SHARED src/process/im_fft.cpp)
+    im_add_def_file(im_fftw3 "${CMAKE_SOURCE_DIR}/src/im_fftw3.def")
     target_include_directories(im_fftw3 PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_compile_definitions(im_fftw3 PRIVATE USE_FFTW3)
     target_link_libraries(im_fftw3 PRIVATE im im_process
@@ -298,6 +314,7 @@ if(IM_BUILD_LUA)
         src/lua5/imlua_image.c
         src/lua5/imlua_palette.c
         src/lua5/imlua_util.c)
+    im_add_def_file(imlua "${CMAKE_SOURCE_DIR}/src/lua5/imlua.def")
     target_include_directories(imlua PRIVATE ${IMLUA_INCLUDE_DIRS})
     target_compile_definitions(imlua PRIVATE ${IMLUA_DEFS})
     target_link_libraries(imlua PRIVATE im ${LUA_LIBRARIES})
@@ -308,6 +325,7 @@ if(IM_BUILD_LUA)
             src/lua5/imlua_process.c
             src/lua5/imlua_kernel.c
             src/lua5/imlua_convert.c)
+        im_add_def_file(imlua_process "${CMAKE_SOURCE_DIR}/src/lua5/imlua_process.def")
         target_include_directories(imlua_process PRIVATE ${IMLUA_INCLUDE_DIRS})
         # IM_PROCESS toggles imlua_convert.c into providing
         # imlua_open_processconvert (the variant used by imlua_process)
@@ -319,6 +337,7 @@ if(IM_BUILD_LUA)
 
     if(IM_BUILD_JP2)
         add_library(imlua_jp2 SHARED src/lua5/imlua_jp2.c)
+        im_add_def_file(imlua_jp2 "${CMAKE_SOURCE_DIR}/src/lua5/imlua_jp2.def")
         target_include_directories(imlua_jp2 PRIVATE ${IMLUA_INCLUDE_DIRS})
         target_compile_definitions(imlua_jp2 PRIVATE ${IMLUA_DEFS})
         target_link_libraries(imlua_jp2 PRIVATE im im_jp2 imlua ${LUA_LIBRARIES})
@@ -327,6 +346,7 @@ if(IM_BUILD_LUA)
 
     if(IM_BUILD_FFTW3)
         add_library(imlua_fftw3 SHARED src/lua5/imlua_fftw.c)
+        im_add_def_file(imlua_fftw3 "${CMAKE_SOURCE_DIR}/src/lua5/imlua_fftw.def")
         target_include_directories(imlua_fftw3 PRIVATE ${IMLUA_INCLUDE_DIRS})
         target_compile_definitions(imlua_fftw3 PRIVATE ${IMLUA_DEFS})
         target_link_libraries(imlua_fftw3 PRIVATE im im_process im_fftw3 imlua ${LUA_LIBRARIES})
