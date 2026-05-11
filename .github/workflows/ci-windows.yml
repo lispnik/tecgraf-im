@@ -94,9 +94,15 @@ jobs:
       - name: Smoke-test Lua bindings
         shell: pwsh
         run: |
-          # The vcpkg lua port is built against vcpkg's lua DLL, but
-          # the chocolatey lua package ships a self-contained
-          # interpreter that's good enough for a smoke test.
+          # Chocolatey installs lua.exe to C:\ProgramData\chocolatey\bin\
+          # but the new PATH isn't picked up by the current pwsh
+          # session; resolve the binary explicitly.
+          $lua = (Get-ChildItem 'C:\ProgramData\chocolatey\lib\lua\tools' -Recurse -Filter lua.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $lua) { $lua = 'C:\ProgramData\chocolatey\bin\lua.exe' }
+          if (-not (Test-Path $lua)) {
+            throw "could not locate lua.exe; choco install must have failed"
+          }
+          Write-Host "lua: $lua"
           $env:PATH = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin;$PWD/build/lib;" + $env:PATH
           @"
           package.cpath = "build/lib/?.dll;" .. package.cpath
@@ -109,7 +115,7 @@ jobs:
           assert(type(imp.ProcessUnArithmeticOp) == "function")
           print("ok")
           "@ | Out-File -Encoding ascii smoke.lua
-          lua smoke.lua
+          & $lua smoke.lua
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4
