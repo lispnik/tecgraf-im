@@ -377,6 +377,17 @@ install(DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h")
 
+# ----------------------------------------------------------------------
+# Test executables
+# ----------------------------------------------------------------------
+
+# Document enhancement test
+if(IM_BUILD_PROCESS)
+    add_executable(document_enhance test/document_enhance.c)
+    target_include_directories(document_enhance PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(document_enhance PRIVATE im im_process)
+endif()
+
 install(EXPORT IMTargets
     NAMESPACE   IM::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/IM)
