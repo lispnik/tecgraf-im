@@ -381,11 +381,15 @@ install(DIRECTORY include/
 # Test executables
 # ----------------------------------------------------------------------
 
-# Document enhancement test
+# Document enhancement tests
 if(IM_BUILD_PROCESS)
     add_executable(document_enhance test/document_enhance.c)
     target_include_directories(document_enhance PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_link_libraries(document_enhance PRIVATE im im_process)
+
+    add_executable(document_enhance_v2 test/document_enhance_v2.c)
+    target_include_directories(document_enhance_v2 PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(document_enhance_v2 PRIVATE im im_process)
 endif()
 
 install(EXPORT IMTargets
