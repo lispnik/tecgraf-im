@@ -98,11 +98,3 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: Trigger IM bindings CI
-        if: success() && github.ref == 'refs/heads/master'
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.DISPATCH_TOKEN }}
-          repository: lispnik/im
-          event-type: tecgraf-im-build-complete
-          client-payload: '{"platform": "macos", "workflow": "ci-macos.yml"}'
