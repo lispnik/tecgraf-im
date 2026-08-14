@@ -229,7 +229,20 @@ enum imByteOrder
  * \ingroup bin */
 int imBinCPUByteOrder(void);
 
-/** Changes the byte order of an array of 2, 4 or 8 byte values.
+/** Changes the byte order of an array of \a count values, each \a size bytes.
+ *
+ * \a size is the width of one scalar value: 1 (a no-op), 2, 4 or 8. It also
+ * accepts 16, the width of \ref IM_CDOUBLE, which is swapped as two
+ * independent 8-byte halves.
+ *
+ * Complex values must be passed as their real components -- the size of one
+ * component and twice the count -- because element size alone cannot tell an
+ * \ref IM_CFLOAT (two 4-byte floats) from a double. Passing
+ * imDataTypeSize(IM_CFLOAT) directly byte-swaps correctly but transposes the
+ * real and imaginary parts.
+ *
+ * A NULL \a data, a \a count of zero or less, and any other \a size leave the
+ * data untouched.
  * \ingroup bin */
 void imBinSwapBytes(void *data, int count, int size);
 

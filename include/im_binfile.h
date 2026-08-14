@@ -60,15 +60,15 @@ unsigned long imBinFileSize(imBinFile* bfile);
  * \ingroup binfile */
 int imBinFileByteOrder(imBinFile* bfile, int pByteOrder);
 
-/** Reads an array of count values with byte sizes: 1, 2, 4, or 8. And invert the byte order if necessary after read. \n
- * Returns the actual count of values read.
+/** Reads an array of count values with byte sizes: 1, 2, 4, 8 or 16. And invert the byte order if necessary after read. \n
+ * Returns the actual count of values read, or 0 if pSizeOf is not positive.
  * \ingroup binfile */
 unsigned long imBinFileRead(imBinFile* bfile, void* pValues, unsigned long pCount, int pSizeOf);
 
 /** Writes an array of values with sizes: 1, 2, 4, or 8. And invert the byte order if necessary before write.\n
  * <b>ATENTION</b>: The function will not make a temporary copy of the values to invert the byte order.\n
  * So after the call the values will be invalid, if the file byte order is different from the CPU byte order. \n
- * Returns the actual count of values written.
+ * Returns the actual count of values written, or 0 if pSizeOf is not positive.
  * \ingroup binfile */
 unsigned long imBinFileWrite(imBinFile* bfile, void* pValues, unsigned long pCount, int pSizeOf);
 
@@ -210,16 +210,65 @@ public:
 
   // These will take care of byte swap if needed.
 
+  /* imBinSwapBytes takes an int count, but pCount here is an unsigned long.
+     Passing it straight through truncated any count above INT_MAX into a
+     negative int, which the swap loops then ran to integer wraparound.
+     Swapping in int-sized chunks keeps the conversion lossless. */
+  void SwapBytesChunked(void* pValues, unsigned long pCount, int pSizeOf)
+  {
+    /* The chunk is capped well below INT_MAX so that chunk * pSizeOf also fits
+       in an unsigned long on LLP64 (Windows), where it is only 32 bits.
+       16M elements of at most 16 bytes is 256MB per call -- far below any
+       overflow, and the loop count is irrelevant next to the I/O. */
+    const unsigned long IM_SWAP_CHUNK = 16777216UL;
+
+    unsigned char* p = (unsigned char*)pValues;
+    unsigned long remaining = pCount;
+
+    while (remaining > 0)
+    {
+      unsigned long chunk = (remaining > IM_SWAP_CHUNK)? IM_SWAP_CHUNK: remaining;
+
+      imBinSwapBytes(p, (int)chunk, pSizeOf);
+
+      p += chunk * (unsigned long)pSizeOf;
+      remaining -= chunk;
+    }
+  }
+
+  /* pSizeOf is both the multiplier for the buffer size and the divisor that
+     turns bytes back into an element count, so it has to be positive:
+
+       - zero divides by zero. That is a SIGFPE on x86-64 but silently yields
+         0 on ARM64, where the hardware defines division by zero as 0 -- so
+         the same call crashes on one platform and quietly returns a
+         plausible short read on another.
+       - negative converts to a huge unsigned long in 'pCount * pSizeOf' and
+         asks the OS to move that many bytes.
+
+     Neither has a sensible answer, and the signature has no error channel:
+     the return is a count. Zero elements is the truthful report. */
+  static bool ValidElementSize(int pSizeOf)
+  {
+    return (pSizeOf > 0);
+  }
+
   unsigned long Read(void* pValues, unsigned long pCount, int pSizeOf)
   {
+    if (!ValidElementSize(pSizeOf))
+      return 0;
+
     unsigned long rSize = ReadBuf(pValues, pCount * pSizeOf);
-    if (pSizeOf != 1 && DoByteOrder) imBinSwapBytes(pValues, pCount, pSizeOf);
+    if (pSizeOf != 1 && DoByteOrder) SwapBytesChunked(pValues, pCount, pSizeOf);
     return rSize/pSizeOf;
   }
 
   unsigned long Write(void* pValues, unsigned long pCount, int pSizeOf)
   {
-    if (pSizeOf != 1 && DoByteOrder) imBinSwapBytes(pValues, pCount, pSizeOf);
+    if (!ValidElementSize(pSizeOf))
+      return 0;
+
+    if (pSizeOf != 1 && DoByteOrder) SwapBytesChunked(pValues, pCount, pSizeOf);
     return WriteBuf(pValues, pCount * pSizeOf)/pSizeOf;
   }
 

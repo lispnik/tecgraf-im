@@ -13,7 +13,9 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/doctest/doctest.cmake)
 
 add_executable(im_tests
     test_main.cpp
-    test_attrib.cpp)
+    test_attrib.cpp
+    test_bin.cpp
+    test_datatype.cpp)
 
 target_include_directories(im_tests
     PRIVATE ${CMAKE_SOURCE_DIR}/include

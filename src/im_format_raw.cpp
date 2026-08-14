@@ -167,11 +167,35 @@ int imFileFormatRAW::iRawUpdateParam(int index)
   if (stype)
     this->switch_type = *stype;
 
-  // The following attributes MUST exist
-  this->width = *(int*)attrib_table->Get("Width");
-  this->height = *(int*)attrib_table->Get("Height");
-  this->file_color_mode = *(int*)attrib_table->Get("ColorMode");
-  this->file_data_type = *(int*)attrib_table->Get("DataType");
+  /* These four MUST exist -- and that used to be enforced by this comment
+     alone. imAttribTableGet returns NULL for a name that was never set, so a
+     caller omitting any one of them dereferenced NULL; and an out-of-range
+     DataType or ColorMode was handed to imDataTypeSize/imImageLineSize to
+     index their tables out of bounds. RAW has no header, so every one of
+     these values comes from the application rather than the file. */
+  int* p_width      = (int*)attrib_table->Get("Width");
+  int* p_height     = (int*)attrib_table->Get("Height");
+  int* p_color_mode = (int*)attrib_table->Get("ColorMode");
+  int* p_data_type  = (int*)attrib_table->Get("DataType");
+
+  if (!p_width || !p_height || !p_color_mode || !p_data_type)
+    return IM_ERR_DATA;
+
+  if (*p_width <= 0 || *p_height <= 0)
+    return IM_ERR_DATA;
+
+  if (*p_data_type < IM_BYTE || *p_data_type > IM_CDOUBLE)
+    return IM_ERR_DATA;
+
+  /* Only the low byte selects the color space; the rest are flag bits. */
+  if (imColorModeSpace(*p_color_mode) < IM_RGB ||
+      imColorModeSpace(*p_color_mode) > IM_XYZ)
+    return IM_ERR_DATA;
+
+  this->width = *p_width;
+  this->height = *p_height;
+  this->file_color_mode = *p_color_mode;
+  this->file_data_type = *p_data_type;
 
   int* pad = (int*)attrib_table->Get("Padding");
   if (pad)
