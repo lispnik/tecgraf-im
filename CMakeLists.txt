@@ -13,6 +13,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     add_compile_options(-Wno-deprecated-declarations -Wno-register)
 endif()
 
+# Much of this tree predates any bounds checking, and its worst failure mode is
+# a silent out-of-bounds read that returns plausible garbage rather than
+# crashing (see the count-overflow path in src/im_attrib.cpp). A sanitizer run
+# turns those into hard failures. Off by default; intended for a dedicated CI
+# job and local debugging. Must be set before any target is defined so the
+# libraries are instrumented too, not just the tests.
+option(IM_ENABLE_SANITIZERS "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+
+if(IM_ENABLE_SANITIZERS)
+    if(MSVC)
+        message(FATAL_ERROR "IM_ENABLE_SANITIZERS is not supported for MSVC builds.")
+    endif()
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 # Default to a Release build when nothing is requested.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -395,6 +411,18 @@ endif()
 install(EXPORT IMTargets
     NAMESPACE   IM::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/IM)
+
+# ----------------------------------------------------------------------
+# Test suite
+# ----------------------------------------------------------------------
+
+# Defines BUILD_TESTING (ON by default) and calls enable_testing(). Consumers
+# who only want the libraries can configure with -DBUILD_TESTING=OFF.
+include(CTest)
+
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()
 
 # Print a small summary so users can confirm what's being built.
 message(STATUS "")

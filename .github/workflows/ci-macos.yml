@@ -63,24 +63,10 @@ jobs:
             otool -L "$lib" | head -20 || true
           done
 
-      - name: Smoke-test Lua bindings
-        run: |
-          cat > smoke.lua <<'EOF'
-          package.cpath = "build/lib/?.dylib;" .. package.cpath
-          local im = require "imlua"
-          print("imlua loaded, version =", im.Version())
-          local img = im.ImageCreate(16, 12, im.RGB, im.BYTE)
-          assert(img:Width() == 16 and img:Height() == 12)
-          img:Destroy()
-          local imp = require "imlua_process"
-          assert(type(imp.ProcessUnArithmeticOp) == "function")
-          local jp2 = require "imlua_jp2"
-          assert(jp2 ~= nil)
-          local fft = require "imlua_fftw3"
-          assert(fft ~= nil)
-          print("ok")
-          EOF
-          /opt/homebrew/opt/lua@5.4/bin/lua smoke.lua
+      # Unit tests plus the Lua binding smoke test, which now lives in
+      # test/smoke.lua and is registered with CTest by test/CMakeLists.txt.
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4

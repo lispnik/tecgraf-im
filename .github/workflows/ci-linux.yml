@@ -49,20 +49,12 @@ jobs:
       - name: Build
         run: cmake --build build -j $(nproc)
 
-      - name: Smoke-test Lua bindings
-        run: |
-          cat > smoke.lua <<'EOF'
-          package.cpath = "build/lib/?.so;" .. package.cpath
-          local im = require "imlua"
-          print("imlua loaded, version =", im.Version())
-          local img = im.ImageCreate(16, 12, im.RGB, im.BYTE)
-          assert(img:Width() == 16 and img:Height() == 12)
-          img:Destroy()
-          local imp = require "imlua_process"
-          assert(type(imp.ProcessUnArithmeticOp) == "function")
-          print("ok")
-          EOF
-          lua5.4 smoke.lua
+      # Unit tests plus the Lua binding smoke test, which now lives in
+      # test/smoke.lua and is registered with CTest by test/CMakeLists.txt.
+      # imlua_jp2 is absent here (IM_BUILD_JP2=OFF); CMake passes only the
+      # modules actually built, so no per-platform module list is needed.
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure
 
       - name: Show build artefacts
         run: |

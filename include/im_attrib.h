@@ -140,7 +140,10 @@ public:
     { imAttribArraySet(ptable, index, name, data_type, count, data); }
 
   /** Finds one attribute in the array.
-   * Returns the attribute if found, NULL otherwise.
+   * Returns the attribute if found, NULL otherwise. Returns NULL for an
+   * index outside the array.
+   * If name is given it must have room for \ref IM_ATTRIB_MAXNAME + 1 bytes;
+   * the stored name is truncated to that length when the attribute is set.
    * See also \ref imDataType. */
   const void* Get(int index, char *name = 0, int *data_type = 0, int *count = 0) const
     { return imAttribArrayGet(ptable, index, name, data_type, count); }

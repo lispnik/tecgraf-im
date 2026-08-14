@@ -14,6 +14,12 @@ extern "C" {
 
 struct imAttribTablePrivate;
 
+/** Maximum length of an attribute name, not counting the terminator.
+ * Names longer than this are truncated when the attribute is set, so a
+ * buffer of IM_ATTRIB_MAXNAME+1 bytes is always enough to receive one.
+ * \ingroup util */
+#define IM_ATTRIB_MAXNAME 255
+
 /** Definition of the callback used in ForEach function. */
 typedef int (*imAttribTableCallback)(void* user_data, int index, const char* name, int data_type, int count, const void* data);
 

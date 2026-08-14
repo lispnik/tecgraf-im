@@ -5,6 +5,7 @@ A comprehensive toolkit for Digital Imaging providing simple APIs and abstractio
 [![Linux CI](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-linux.yml)
 [![macOS CI](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-macos.yml)
 [![Windows CI](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-windows.yml/badge.svg)](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-windows.yml)
+[![Sanitizers](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-sanitizers.yml/badge.svg)](https://github.com/lispnik/tecgraf-im/actions/workflows/ci-sanitizers.yml)
 
 ## About
 

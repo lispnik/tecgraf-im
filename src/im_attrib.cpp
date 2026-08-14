@@ -46,35 +46,91 @@ public:
   ~imAttribNode();
 };
 
-static char* utlStrDup(const char* str)
+/* Duplicates an attribute name, truncating at IM_ATTRIB_MAXNAME. Bounding the
+   name here is what lets imAttribArrayGet copy into a caller-supplied buffer
+   safely: the flat API has no room for a buffer-size argument, so the limit
+   has to be a documented property of the stored name. Returns NULL if the
+   allocation fails. */
+static char* utlStrDupName(const char* str)
 {
-  int size;
+  size_t len;
   char* new_str;
 
   assert(str);
 
-  size = (int)strlen(str) + 1;
-  new_str = (char*)malloc(size);
-  memcpy(new_str, str, size);
+  len = strlen(str);
+  if (len > IM_ATTRIB_MAXNAME)
+    len = IM_ATTRIB_MAXNAME;
+
+  new_str = (char*)malloc(len + 1);
+  if (!new_str)
+    return NULL;
+
+  memcpy(new_str, str, len);
+  new_str[len] = 0;
 
   return new_str;
 }
 
+/* Computes the byte size of 'count' elements of 'data_type' and stores it in
+   *size. Returns 0 -- leaving *size untouched -- when the request cannot be
+   honoured: an unknown data type, a negative count, or a product that would
+   not fit in size_t.
+
+   Attribute counts and types reach this code straight from image files (see
+   src/im_format_tiff.cpp, which forwards a file-supplied element count), so
+   they cannot be assumed sane. The overflow check matters most: 'int'
+   arithmetic here used to wrap silently, under-allocating while the node went
+   on advertising the original count. */
+static int iAttribDataSize(int data_type, int count, size_t* size)
+{
+  /* imDataTypeSize indexes a fixed table with no release-build guard, so the
+     range check has to happen before calling it. */
+  if (data_type < IM_BYTE || data_type > IM_CDOUBLE)
+    return 0;
+
+  if (count < 0)
+    return 0;
+
+  int elem_size = imDataTypeSize(data_type);
+  if (elem_size <= 0)
+    return 0;
+
+  if ((size_t)count > (size_t)-1 / (size_t)elem_size)
+    return 0;
+
+  *size = (size_t)count * (size_t)elem_size;
+  return 1;
+}
+
 imAttribNode::imAttribNode(const char* name, int _data_type, int _count, const void* _data, imAttribNode* _next)
 {
-  if (_data_type == 0 && _count == -1 && _data)  /* BYTE meaning a string */
-    _count = (int)strlen((char*)_data)+1;
+  if (_data_type == IM_BYTE && _count == -1 && _data)  /* BYTE meaning a string */
+    _count = (int)strlen((const char*)_data)+1;
 
-  this->name = utlStrDup(name);
+  this->name = utlStrDupName(name);
   this->data_type = _data_type;
-  this->count = _count;
   this->next = _next;
 
-  int size = _count * imDataTypeSize(_data_type);
+  /* count stays 0 until the matching allocation actually succeeds, so it can
+     never describe more bytes than the node owns. Every reader trusts count
+     to bound its walk over data. */
+  this->count = 0;
+  this->data = NULL;
+
+  size_t size = 0;
+  if (!iAttribDataSize(_data_type, _count, &size) || size == 0)
+    return;    /* unusable request: the node stays empty and Get reports it as absent */
+
   this->data = malloc(size);
-  if (_data) 
+  if (!this->data)
+    return;
+
+  this->count = _count;
+
+  if (_data)
     memcpy(this->data, _data, size);
-  else 
+  else
     memset(this->data, 0, size);
 }
 
@@ -89,8 +145,10 @@ imAttribNode::~imAttribNode()
 
 struct imAttribTablePrivate
 {
-  int count,       
-      hash_size;   
+  int count,
+      hash_size,
+      is_array;    /* tables count elements; arrays store their capacity in
+                      'count' instead. RemoveAll has to tell them apart. */
   imAttribNode* *hash_table;
 };
 
@@ -98,6 +156,7 @@ imAttribTablePrivate* imAttribTableCreate(int hash_size)
 {
   imAttribTablePrivate* ptable = (imAttribTablePrivate*)malloc(sizeof(imAttribTablePrivate));
   ptable->count = 0;
+  ptable->is_array = 0;
   ptable->hash_size = (hash_size == 0)? IM_DEFAULTSIZE: hash_size;
   ptable->hash_table = (imAttribNode**)malloc(ptable->hash_size*sizeof(imAttribNode*));
   memset(ptable->hash_table, 0, ptable->hash_size*sizeof(imAttribNode*));
@@ -108,6 +167,7 @@ imAttribTablePrivate* imAttribArrayCreate(int count)
 {
   imAttribTablePrivate* ptable = (imAttribTablePrivate*)malloc(sizeof(imAttribTablePrivate));
   ptable->hash_size = ptable->count = count;
+  ptable->is_array = 1;
   ptable->hash_table = (imAttribNode**)malloc(ptable->count*sizeof(imAttribNode*));
   memset(ptable->hash_table, 0, ptable->hash_size*sizeof(imAttribNode*));
   return ptable;
@@ -146,8 +206,11 @@ void imAttribTableRemoveAll(imAttribTablePrivate* ptable)
     if (n == ptable->count)
       break;
   }
-  
-  ptable->count = 0;
+
+  /* An array's 'count' is its capacity, not its element count. Zeroing it
+     would make every later imAttribArraySet fail its index guard and every
+     imAttribArrayGet return NULL -- silently, and permanently. */
+  ptable->count = ptable->is_array? ptable->hash_size: 0;
 }
 
 void imAttribTableSet(imAttribTablePrivate* ptable, const char* name, int data_type, int count, const void* data)
@@ -244,9 +307,11 @@ const void* imAttribTableGet(const imAttribTablePrivate* ptable, const char *nam
 void imAttribArraySet(imAttribTablePrivate* ptable, int index, const char* name, int data_type, int count, const void* data)
 {
   assert(name);
-  assert(index < ptable->count);
+  assert(index >= 0 && index < ptable->count);
 
-  if (index >= ptable->count) return;
+  /* The old guard tested only the upper bound, so a negative index passed
+     both it and the assert and then wrote through hash_table[index]. */
+  if (index < 0 || index >= ptable->count) return;
 
   imAttribNode* node = ptable->hash_table[index];
   if (node) delete node;
@@ -258,10 +323,24 @@ const void* imAttribArrayGet(const imAttribTablePrivate* ptable, int index, char
 {
   if (ptable->count == 0) return NULL;
 
+  /* Unlike imAttribArraySet this used to check only for an empty array, so an
+     out-of-range index read past the slot array and dereferenced whatever it
+     found. Bound against hash_size: that is the real number of slots. */
+  if (index < 0 || index >= ptable->hash_size) return NULL;
+
   imAttribNode* node = ptable->hash_table[index];
-  if (node) 
+  if (node)
   {
-    if (name) strcpy(name, node->name);
+    /* Names are truncated to IM_ATTRIB_MAXNAME when stored, so this copy is
+       bounded by IM_ATTRIB_MAXNAME+1 bytes -- the size the header requires of
+       'name'. Copy exactly strlen+1 rather than reaching for strncpy, which
+       pads to its full limit and would write 256 bytes into every buffer
+       regardless of how short the name is. */
+    if (name)
+    {
+      size_t name_len = strlen(node->name);   /* <= IM_ATTRIB_MAXNAME by construction */
+      memcpy(name, node->name, name_len + 1);
+    }
     if (data_type) *data_type = node->data_type;
     if (count) *count = node->count;
     return node->data;
@@ -321,17 +400,18 @@ void imAttribTableMergeFrom(imAttribTablePrivate* ptable_dst, const imAttribTabl
   imAttribTableForEach(ptable_src, (void*)ptable_dst, iMergeFunc);
 }
 
-static int iCopyArrayFunc(void* user_data, int index, const char* name, int data_type, int count, const void* data)
-{                  
-  (void)index;
-  imAttribTablePrivate* ptable = (imAttribTablePrivate*)user_data;
-  imAttribArraySet(ptable, index, name, data_type, count, data);
-  return 1;
-}
-
 void imAttribArrayCopyFrom(imAttribTablePrivate* ptable_dst, const imAttribTablePrivate* ptable_src)
 {
-  imAttribTableForEach(ptable_src, (void*)ptable_dst, iCopyArrayFunc);
+  /* Walks the slots directly rather than going through imAttribTableForEach.
+     That callback reports a sequential counter, not the slot an attribute was
+     found in -- correct for a hash table, where position carries no meaning,
+     but it would compact a sparse array and silently renumber every entry. */
+  for (int i = 0; i < ptable_src->hash_size; i++)
+  {
+    imAttribNode* node = ptable_src->hash_table[i];
+    if (node)
+      imAttribArraySet(ptable_dst, i, node->name, node->data_type, node->count, node->data);
+  }
 }
 
 int imAttribTableGetInteger(imAttribTablePrivate* ptable, const char *name, int index)

@@ -89,13 +89,17 @@ jobs:
         run: |
           Get-ChildItem build/lib | Format-Table Name, Length
 
-      # No runtime smoke test on Windows: vcpkg's 'lua' port installs
-      # the Lua library but no lua.exe interpreter, and there's no
-      # easy way to mix a different Lua interpreter (e.g. from choco)
-      # with vcpkg-built imlua_*.dll modules because they're linked
-      # against vcpkg's own libluaXX.dll at the ABI level. Linux and
-      # macOS CI cover Lua-binding smoke testing; the Windows job
-      # verifies that the same source compiles + links.
+      # The C++ unit tests do run here. Two things self-skip rather than
+      # fail:
+      #   - lua.smoke is not registered at all, because vcpkg's 'lua' port
+      #     installs the library but no lua.exe interpreter, and mixing in a
+      #     different interpreter (e.g. from choco) does not work -- the
+      #     imlua_*.dll modules are linked against vcpkg's own libluaXX.dll
+      #     at the ABI level. Linux and macOS CI cover the bindings.
+      #   - the attrib.isolated.* probes need fork(), so they exit 77 and
+      #     CTest reports them as skipped.
+      - name: Run test suite
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Upload IM libraries
         uses: actions/upload-artifact@v4

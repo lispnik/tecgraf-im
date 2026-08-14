@@ -1,0 +1,74 @@
+name: CI (Sanitizers)
+
+on:
+  push:
+    branches:
+      - master
+      - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
+      - 'ci-*'
+  pull_request:
+    branches:
+      - master
+      - 'macos-system-libs-and-fixes'
+      - 'cmake-build'
+  workflow_dispatch:
+
+jobs:
+  sanitize:
+    name: ASan + UBSan (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+
+    env:
+      # LeakSanitizer is on. Both the test binary and document_enhance (which
+      # registers formats and round-trips a file) were measured clean before
+      # enabling it, so this starts from a green baseline rather than a
+      # backlog. Note LSan only reports *unreachable* memory: the format
+      # objects held by the global iFormatList[] in src/im_format.cpp stay
+      # reachable and are not flagged, which is why registration does not trip
+      # it. If a future change makes this noisy, prefer fixing the leak over
+      # setting detect_leaks=0.
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1
+      # UBSan only prints and continues by default, which would let findings
+      # pass CI silently. halt_on_error makes them fatal.
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libtiff-dev libjpeg-dev libpng-dev \
+            libexif-dev liblzf-dev liblz4-dev \
+            libfftw3-dev
+
+      - name: Configure
+        # IM_BUILD_LUA=OFF: loading an instrumented imlua.so into an
+        # uninstrumented system lua trips ASan's "runtime does not come first
+        # in initial library list" check. The bindings are covered by the
+        # Linux and macOS jobs.
+        # IM_BUILD_PROCESS_OMP=OFF: a parity build of the same sources, so it
+        # adds compile time without adding coverage.
+        # IM_BUILD_JP2=OFF: libjasper-dev is not in Ubuntu after 18.04.
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DIM_ENABLE_SANITIZERS=ON \
+            -DIM_BUILD_JP2=OFF \
+            -DIM_BUILD_LUA=OFF \
+            -DIM_BUILD_PROCESS_OMP=OFF
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      # No exclusions: every test runs clean under both sanitizers. An earlier
+      # revision had to skip the count-overflow case because it deliberately
+      # executed the signed-integer overflow at src/im_attrib.cpp, which
+      # halt_on_error turns fatal. That bug is fixed, so the case no longer
+      # exists in that form and nothing needs excluding.
+      - name: Run test suite under sanitizers
+        run: ctest --test-dir build --output-on-failure
