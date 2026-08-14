@@ -39,7 +39,7 @@ jobs:
           brew install --quiet \
             cmake ninja pkg-config \
             libtiff jpeg-turbo libpng libexif liblzf lz4 \
-            jasper fftw libomp lua@5.4
+            jasper fftw libomp lua@5.4 libheif
 
       - name: Configure
         run: |
@@ -47,6 +47,7 @@ jobs:
           # changed in 5.5 break compilation); pin Lua 5.4 explicitly.
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DIM_BUILD_HEIF=ON \
             -DLUA_INCLUDE_DIR=/opt/homebrew/opt/lua@5.4/include/lua5.4 \
             -DLUA_LIBRARY=/opt/homebrew/opt/lua@5.4/lib/liblua5.4.dylib
 

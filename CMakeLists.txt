@@ -70,6 +70,12 @@ option(IM_BUILD_JP2         "Build libim_jp2 (JPEG 2000 add-on via libjasper)"  
 option(IM_BUILD_FFTW3       "Build libim_fftw3 (FFTW3 backend for FFT)"          ON)
 option(IM_BUILD_LUA         "Build Lua 5.x bindings (imlua, imlua_process, ...)" ON)
 
+# Default OFF, unlike the other add-ons. libheif itself is LGPL, but a build
+# with HEIC *encoding* pulls in x265, which is GPL-2.0 -- and a binary whose
+# link closure includes it must be distributed under the GPL, overriding IM's
+# MIT terms for anyone redistributing. Opt in knowingly. See BUILDING.md.
+option(IM_BUILD_HEIF        "Build libim_heif (HEIC/AVIF add-on via libheif)"    OFF)
+
 # Build-time dependencies (all required for libim).
 find_package(PkgConfig REQUIRED)
 find_package(TIFF REQUIRED)
@@ -285,6 +291,22 @@ if(IM_BUILD_JP2)
 endif()
 
 # ----------------------------------------------------------------------
+# libim_heif (HEIC/AVIF via libheif)
+# ----------------------------------------------------------------------
+
+if(IM_BUILD_HEIF)
+    # libheif has shipped a pkg-config file for a long time, so unlike jasper
+    # no manual probe is needed. 1.12 is the floor: it is what Ubuntu 22.04
+    # carries, and the driver deliberately uses no newer API.
+    pkg_check_modules(LIBHEIF REQUIRED IMPORTED_TARGET libheif>=1.12)
+
+    add_library(im_heif SHARED src/im_format_heif.cpp)
+    im_add_def_file(im_heif "${CMAKE_SOURCE_DIR}/src/im_heif.def")
+    target_include_directories(im_heif PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_heif PRIVATE im PkgConfig::LIBHEIF)
+endif()
+
+# ----------------------------------------------------------------------
 # libim_fftw3 (FFTW3 backend)
 # ----------------------------------------------------------------------
 
@@ -360,6 +382,15 @@ if(IM_BUILD_LUA)
         set_target_properties(imlua_jp2 PROPERTIES PREFIX "")
     endif()
 
+    if(IM_BUILD_HEIF)
+        add_library(imlua_heif SHARED src/lua5/imlua_heif.c)
+        im_add_def_file(imlua_heif "${CMAKE_SOURCE_DIR}/src/lua5/imlua_heif.def")
+        target_include_directories(imlua_heif PRIVATE ${IMLUA_INCLUDE_DIRS})
+        target_compile_definitions(imlua_heif PRIVATE ${IMLUA_DEFS})
+        target_link_libraries(imlua_heif PRIVATE im im_heif imlua ${LUA_LIBRARIES})
+        set_target_properties(imlua_heif PROPERTIES PREFIX "")
+    endif()
+
     if(IM_BUILD_FFTW3)
         add_library(imlua_fftw3 SHARED src/lua5/imlua_fftw.c)
         im_add_def_file(imlua_fftw3 "${CMAKE_SOURCE_DIR}/src/lua5/imlua_fftw.def")
@@ -376,8 +407,8 @@ endif()
 
 include(GNUInstallDirs)
 set(_im_targets im)
-foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3
-                   imlua imlua_process imlua_jp2 imlua_fftw3)
+foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif
+                   imlua imlua_process imlua_jp2 imlua_fftw3 imlua_heif)
     if(TARGET ${t})
         list(APPEND _im_targets ${t})
     endif()
@@ -432,5 +463,6 @@ message(STATUS "  libim_process       ${IM_BUILD_PROCESS}")
 message(STATUS "  libim_process_omp   ${IM_BUILD_PROCESS_OMP}")
 message(STATUS "  libim_jp2           ${IM_BUILD_JP2}")
 message(STATUS "  libim_fftw3         ${IM_BUILD_FFTW3}")
+message(STATUS "  libim_heif          ${IM_BUILD_HEIF}")
 message(STATUS "  Lua bindings        ${IM_BUILD_LUA}")
 message(STATUS "")

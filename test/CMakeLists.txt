@@ -17,6 +17,13 @@ add_executable(im_tests
     test_bin.cpp
     test_datatype.cpp)
 
+# The HEIF driver is an optional add-on, so its tests compile only when it is
+# built. Everything else in im_tests is unconditional.
+if(TARGET im_heif)
+    target_sources(im_tests PRIVATE test_heif.cpp)
+    target_link_libraries(im_tests PRIVATE im_heif)
+endif()
+
 target_include_directories(im_tests
     PRIVATE ${CMAKE_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR})
@@ -27,7 +34,8 @@ target_link_libraries(im_tests PRIVATE im)
 set(IM_TEST_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/test-output)
 file(MAKE_DIRECTORY ${IM_TEST_OUTPUT_DIR})
 target_compile_definitions(im_tests
-    PRIVATE IM_TEST_OUTPUT_DIR="${IM_TEST_OUTPUT_DIR}")
+    PRIVATE IM_TEST_OUTPUT_DIR="${IM_TEST_OUTPUT_DIR}"
+            IM_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
 # One CTest entry per TEST_CASE, so a crash isolates to a single reported
 # test rather than an opaque whole-binary failure.
@@ -59,7 +67,7 @@ if(IM_BUILD_LUA)
     if(IM_LUA_INTERPRETER)
         # Modules beyond core imlua exist only when their add-on was built.
         set(_lua_modules "")
-        foreach(m imlua_process imlua_jp2 imlua_fftw3)
+        foreach(m imlua_process imlua_jp2 imlua_fftw3 imlua_heif)
             if(TARGET ${m})
                 list(APPEND _lua_modules ${m})
             endif()

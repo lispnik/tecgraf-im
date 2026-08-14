@@ -36,7 +36,8 @@ jobs:
             libtiff-dev libjpeg-dev libpng-dev \
             libexif-dev liblzf-dev liblz4-dev \
             libfftw3-dev libomp-dev \
-            liblua5.4-dev lua5.4
+            liblua5.4-dev lua5.4 \
+            libheif-dev
           # libjasper-dev was dropped from Ubuntu after 18.04 due to
           # unfixed CVEs; libim_jp2 can't be built from system libs here.
 
@@ -44,7 +45,8 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DIM_BUILD_JP2=OFF
+            -DIM_BUILD_JP2=OFF \
+            -DIM_BUILD_HEIF=ON
 
       - name: Build
         run: cmake --build build -j $(nproc)

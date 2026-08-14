@@ -57,8 +57,47 @@ lookups; no other configuration is required.
 | `IM_BUILD_JP2`         | ON      | JPEG 2000 support (needs libjasper)  |
 | `IM_BUILD_FFTW3`       | ON      | FFTW3-backed FFT add-on              |
 | `IM_BUILD_LUA`         | ON      | Lua 5.x bindings (imlua + add-ons)   |
+| `IM_BUILD_HEIF`        | OFF     | HEIC/AVIF support (needs libheif)    |
 
 Disable any of them with e.g. `-DIM_BUILD_JP2=OFF`.
+
+## HEIC / AVIF, and why it is off by default
+
+`IM_BUILD_HEIF=ON` builds `libim_heif`, adding the `HEIF` (*.heic, *.heif) and
+`AVIF` (*.avif) drivers. It needs libheif 1.12 or newer:
+
+```sh
+brew install libheif           # macOS
+sudo apt install libheif-dev   # Debian/Ubuntu
+vcpkg install libheif          # Windows
+```
+
+It is the only add-on defaulting to OFF, because of what libheif links rather
+than libheif itself:
+
+| Codec    | Used for      | Licence  |
+|----------|---------------|----------|
+| libheif  | the container | LGPL-3.0 |
+| libde265 | HEIC decode   | LGPL-2.1 |
+| **x265** | HEIC encode   | **GPL-2.0** |
+| aom      | AVIF          | BSD-2    |
+
+IM is MIT. Dynamically linking the LGPL parts leaves that intact, but a binary
+whose link closure includes **x265 must be distributed under the GPL**, which
+would carry over to anyone redistributing your build. Homebrew's libheif links
+x265 today, so on macOS you get it by default -- check with:
+
+```sh
+otool -L $(brew --prefix libheif)/lib/libheif.dylib | grep x265
+```
+
+To keep IM's MIT terms intact, either build libheif without x265 and let it
+load an encoder plugin at run time (libheif 1.16+), or use AVIF for writing,
+which has no such constraint. Decoding HEIC needs only the LGPL libde265.
+
+Separately, HEVC is covered by patent pools (MPEG LA / Access Advance) that may
+require a licence for commercial distribution regardless of software licence.
+AVIF is royalty free.
 
 ## Lua bindings
 

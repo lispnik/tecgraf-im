@@ -18,7 +18,7 @@ env:
   # vcpkg ports the IM build links against. liblzf is intentionally
   # absent — no vcpkg port exists, so the CMakeLists falls back to
   # the bundled src/liblzf/ tree.
-  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua
+  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua libheif
 
 jobs:
   build:
@@ -78,6 +78,7 @@ jobs:
           $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT "scripts/buildsystems/vcpkg.cmake"
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DIM_BUILD_HEIF=ON `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 

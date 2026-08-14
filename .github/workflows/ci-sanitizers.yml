@@ -44,7 +44,7 @@ jobs:
             cmake ninja-build pkg-config \
             libtiff-dev libjpeg-dev libpng-dev \
             libexif-dev liblzf-dev liblz4-dev \
-            libfftw3-dev
+            libfftw3-dev libheif-dev
 
       - name: Configure
         # IM_BUILD_LUA=OFF: loading an instrumented imlua.so into an
@@ -60,7 +60,8 @@ jobs:
             -DIM_ENABLE_SANITIZERS=ON \
             -DIM_BUILD_JP2=OFF \
             -DIM_BUILD_LUA=OFF \
-            -DIM_BUILD_PROCESS_OMP=OFF
+            -DIM_BUILD_PROCESS_OMP=OFF \
+            -DIM_BUILD_HEIF=ON
 
       - name: Build
         run: cmake --build build -j $(nproc)

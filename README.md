@@ -43,7 +43,8 @@ This fork modernizes the original [Tecgraf IM library](http://www.tecgraf.puc-ri
 
 ## Features
 
-- **Image Formats**: TIFF, BMP, PNG, JPEG, GIF, AVI, PCD, PCX, TGA, RAS, SGI, and more
+- **Image Formats**: TIFF, BMP, PNG, JPEG, GIF, AVI, PCD, PCX, TGA, RAS, SGI, and more,
+  plus optional HEIC/AVIF via libheif (`-DIM_BUILD_HEIF=ON`, see BUILDING.md)
 - **Data Types**: Support for scientific data types (int, float, complex)
 - **Processing Operations**: 100+ image processing functions including:
   - Arithmetic operations
@@ -187,6 +188,8 @@ See the original [COPYRIGHT](COPYRIGHT) file for license information.
 
 ### Optional Enhanced Features
 - **JPEG 2000**: Jasper library (may be disabled with `-DIM_BUILD_JP2=OFF`)
+- **HEIC / AVIF**: libheif 1.12+ (opt in with `-DIM_BUILD_HEIF=ON`; note the
+  x265/GPL caveat in [BUILDING.md](BUILDING.md))
 - **Compression**: liblzf, lz4
 - **Fourier Transforms**: FFTW3
 - **Parallel Processing**: OpenMP
