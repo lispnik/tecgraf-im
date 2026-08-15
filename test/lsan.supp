@@ -1,0 +1,16 @@
+# LeakSanitizer suppressions.
+#
+# Only third-party leaks belong here. Anything IM itself allocates must be
+# freed, and the sanitizer job exists to prove that -- so keep these matches
+# as narrow as possible.
+#
+# x265 leaks ~1.2 KB per encoder from x265_encoder_open, reached through
+# libheif's x265 plugin during heif_context_encode_image. IM releases the
+# heif_encoder and the heif_context it owns; this allocation is below that
+# and there is no API to reclaim it.
+#
+# Deliberately matched on x265 rather than libheif: a suppression for libheif
+# would also hide IM failing to release a heif_image or heif_image_handle,
+# which is exactly the kind of bug this job is here to catch.
+leak:libx265
+leak:x265_encoder_open

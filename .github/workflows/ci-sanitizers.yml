@@ -32,6 +32,8 @@ jobs:
       # UBSan only prints and continues by default, which would let findings
       # pass CI silently. halt_on_error makes them fatal.
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      # Third-party leaks only; see the file for why the match is narrow.
+      LSAN_OPTIONS: suppressions=${{ github.workspace }}/test/lsan.supp
 
     steps:
       - name: Check out source
