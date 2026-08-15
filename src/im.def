@@ -83,6 +83,7 @@ EXPORTS
   imColorEncode
   imDataTypeIntMin
   imDataTypeIntMax
+  imBinSwapBytes
   imBinSwapBytes2
   imBinSwapBytes4
   imBinSwapBytes8
@@ -104,6 +105,7 @@ EXPORTS
   imAttribTableSet
   imAttribTableUnSet
   imAttribTableCopyFrom
+  imAttribTableMergeFrom
   imAttribTableForEach
   imAttribTableGetInteger
   imAttribTableGetReal

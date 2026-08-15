@@ -296,9 +296,10 @@ endif()
 
 if(IM_BUILD_HEIF)
     # libheif has shipped a pkg-config file for a long time, so unlike jasper
-    # no manual probe is needed. 1.12 is the floor: it is what Ubuntu 22.04
-    # carries, and the driver deliberately uses no newer API.
-    pkg_check_modules(LIBHEIF REQUIRED IMPORTED_TARGET libheif>=1.12)
+    # no manual probe is needed. 1.17 is the floor: 1.12, which Ubuntu 22.04
+    # carries, has no heif_brand2_avif and does not compile. 1.17.6 (Ubuntu
+    # 24.04) is the oldest release verified to build and pass.
+    pkg_check_modules(LIBHEIF REQUIRED IMPORTED_TARGET libheif>=1.17)
 
     add_library(im_heif SHARED src/im_format_heif.cpp)
     im_add_def_file(im_heif "${CMAKE_SOURCE_DIR}/src/im_heif.def")

@@ -188,7 +188,7 @@ See the original [COPYRIGHT](COPYRIGHT) file for license information.
 
 ### Optional Enhanced Features
 - **JPEG 2000**: Jasper library (may be disabled with `-DIM_BUILD_JP2=OFF`)
-- **HEIC / AVIF**: libheif 1.12+ (opt in with `-DIM_BUILD_HEIF=ON`; note the
+- **HEIC / AVIF**: libheif 1.17+ (opt in with `-DIM_BUILD_HEIF=ON`; note the
   x265/GPL caveat in [BUILDING.md](BUILDING.md))
 - **Compression**: liblzf, lz4
 - **Fourier Transforms**: FFTW3

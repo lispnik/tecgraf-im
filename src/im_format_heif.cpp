@@ -22,7 +22,12 @@
 /* One include is enough for every libheif release: <libheif/heif.h> is an
    umbrella header. 1.20 split the API into heif_decoding.h, heif_encoding.h
    and friends, but kept the umbrella including all of them, so this source
-   builds unchanged against 1.12 (Ubuntu 22.04) through current. */
+   builds unchanged against 1.17 through current.
+
+   1.17 is the floor because 1.12 has no heif_brand2_avif. Note also that
+   distributions increasingly ship libheif's codecs as separate plugins
+   (Ubuntu 24.04 does), so a libheif that links fine can still have no
+   encoder at run time -- WriteImageInfo reports that as IM_ERR_COMPRESS. */
 
 #define IM_HEIF_DEFAULT_QUALITY 80
 

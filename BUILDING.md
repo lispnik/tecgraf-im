@@ -64,7 +64,7 @@ Disable any of them with e.g. `-DIM_BUILD_JP2=OFF`.
 ## HEIC / AVIF, and why it is off by default
 
 `IM_BUILD_HEIF=ON` builds `libim_heif`, adding the `HEIF` (*.heic, *.heif) and
-`AVIF` (*.avif) drivers. It needs libheif 1.12 or newer:
+`AVIF` (*.avif) drivers. It needs libheif 1.17 or newer:
 
 ```sh
 brew install libheif           # macOS

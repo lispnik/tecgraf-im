@@ -46,6 +46,21 @@ jobs:
             libexif-dev liblzf-dev liblz4-dev \
             libfftw3-dev libheif-dev
 
+      - name: Install libheif codec plugins
+        # See the note in ci-linux.yml: on 24.04 the codecs are separate
+        # packages, and without them libheif can neither encode nor decode.
+        # Probed rather than installed outright so a renamed package shows up
+        # as a named skip here instead of an opaque apt failure.
+        run: |
+          for pkg in libheif-plugin-libde265 libheif-plugin-x265 \
+                     libheif-plugin-aomdec libheif-plugin-aomenc; do
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+              sudo apt-get install -y --no-install-recommends "$pkg"
+            else
+              echo "skipping $pkg: not packaged for this release"
+            fi
+          done
+
       - name: Configure
         # IM_BUILD_LUA=OFF: loading an instrumented imlua.so into an
         # uninstrumented system lua trips ASan's "runtime does not come first

@@ -26,7 +26,7 @@ extern "C" {
  * to register both formats into the IM core library.
  * In Lua call require"imlua_heif". \n
  * \par
- * Access to both file formats uses libheif 1.12 or newer \n
+ * Access to both file formats uses libheif 1.17 or newer \n
  * https://github.com/strukturag/libheif \n
  * Copyright (c) 2017-2024 Dirk Farin, licensed LGPL-3.0-or-later.
  *

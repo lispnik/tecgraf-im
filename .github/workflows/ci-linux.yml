@@ -22,7 +22,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ['22.04', '24.04']
+        # HEIF is per-release: 22.04 ships libheif 1.12, which predates
+        # heif_brand2_avif and does not compile. The add-on is optional, so
+        # that job simply builds without it.
+        include:
+          - os: '22.04'
+            heif: 'OFF'
+          - os: '24.04'
+            heif: 'ON'
 
     steps:
       - name: Check out source
@@ -41,12 +48,28 @@ jobs:
           # libjasper-dev was dropped from Ubuntu after 18.04 due to
           # unfixed CVEs; libim_jp2 can't be built from system libs here.
 
+      - name: Install libheif codec plugins
+        # Ubuntu 24.04 ships libheif's codecs as separate plugin packages, so
+        # libheif-dev on its own yields a container with no encoder and no
+        # decoder -- every HEIF test then fails with IM_ERR_COMPRESS. The
+        # packages do not exist on 22.04, hence the probe rather than a plain
+        # install.
+        run: |
+          for pkg in libheif-plugin-libde265 libheif-plugin-x265 \
+                     libheif-plugin-aomdec libheif-plugin-aomenc; do
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+              sudo apt-get install -y --no-install-recommends "$pkg"
+            else
+              echo "skipping $pkg: not packaged for this release"
+            fi
+          done
+
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DIM_BUILD_JP2=OFF \
-            -DIM_BUILD_HEIF=ON
+            -DIM_BUILD_HEIF=${{ matrix.heif }}
 
       - name: Build
         run: cmake --build build -j $(nproc)
