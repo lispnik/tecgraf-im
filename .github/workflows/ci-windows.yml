@@ -23,6 +23,10 @@ env:
   # (libde265 + x265) but no AV1, so AVIF had no encoder or decoder and every
   # test that touches it failed. 'aom' supplies both.
   VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua "libheif[core,hevc,aom]"
+  # Cache keys may not contain commas, and the libheif feature list has them,
+  # so the key is a manual tag rather than the dependency string. Bump it
+  # whenever VCPKG_DEPS changes, or the cache will be stale.
+  VCPKG_DEPS_KEY: v2-libheif-aom
 
 jobs:
   build:
@@ -66,7 +70,7 @@ jobs:
           # phase on subsequent runs — first-run is ~15 min, cached
           # runs are ~30 s.
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-binary-cache-windows-2022-${{ env.VCPKG_DEPS }}-v1
+          key: vcpkg-binary-cache-windows-2022-${{ env.VCPKG_DEPS_KEY }}
           restore-keys: |
             vcpkg-binary-cache-windows-2022-
 
