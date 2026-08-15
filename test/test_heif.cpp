@@ -102,6 +102,25 @@ imImage* round_trip(imImage* source, const char* format, const char* file,
   return imFileImageLoad(path.c_str(), 0, &error);
 }
 
+/* libheif loads its codecs as plugins, and distributions package them
+   separately -- Ubuntu splits them into libheif-plugin-*, vcpkg makes them
+   opt-in features. A build can therefore have HEVC but not AV1. The driver
+   reports that as IM_ERR_COMPRESS from WriteImageInfo, and as the same code
+   from a decode of an unsupported codec.
+
+   Treating that as a test failure would mean demanding every CI platform ship
+   every codec, so skip the individual codec instead. The final case in this
+   file guards against the degenerate outcome where nothing is available and
+   every case skips. */
+bool codec_unavailable(int error, const char* format)
+{
+  if (error != IM_ERR_COMPRESS)
+    return false;
+
+  MESSAGE("skipping " << format << ": this libheif has no codec for it");
+  return true;
+}
+
 struct RegisterOnce
 {
   RegisterOnce() { imFormatRegisterHEIF(); }
@@ -137,6 +156,11 @@ TEST_CASE("HEIF: gray round-trips exactly with Lossless")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
+    if (codec_unavailable(save_error, formats[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
     REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
     CHECK(loaded->width == TEST_WIDTH);
     CHECK(loaded->height == TEST_HEIGHT);
@@ -165,6 +189,11 @@ TEST_CASE("HEIF: RGB round-trips within the conversion rounding floor")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
+    if (codec_unavailable(save_error, formats[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
     REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
     CHECK(loaded->width == TEST_WIDTH);
     CHECK(loaded->height == TEST_HEIGHT);
@@ -197,6 +226,11 @@ TEST_CASE("HEIF: an alpha channel survives the round-trip")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
+    if (codec_unavailable(save_error, formats[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
     REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
     CHECK(loaded->has_alpha != 0);
     CHECK(max_sample_difference(source, loaded) <= 2);
@@ -225,6 +259,11 @@ TEST_CASE("HEIF: IM_USHORT is written at 12 bits and scaled back on read")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
+    if (codec_unavailable(save_error, formats[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
     REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
     CHECK(loaded->data_type == IM_USHORT);
     CHECK(max_sample_difference(source, loaded) <= 15);
@@ -252,6 +291,11 @@ TEST_CASE("HEIF: a lossy write still preserves geometry and type")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 0, 80, &save_error);
 
+    if (codec_unavailable(save_error, formats[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
     REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
     CHECK(loaded->width == TEST_WIDTH);
     CHECK(loaded->height == TEST_HEIGHT);
@@ -273,6 +317,11 @@ TEST_CASE("HEIF: the file reports its own codec, whichever driver opened it")
 
   int save_error = IM_ERR_NONE;
   imImage* loaded = round_trip(source, "AVIF", "brand.avif", 1, 100, &save_error);
+  if (codec_unavailable(save_error, "AVIF"))
+  {
+    imImageDestroy(source);
+    return;
+  }
   REQUIRE(loaded != NULL);
   imImageDestroy(loaded);
 
@@ -374,6 +423,8 @@ TEST_CASE("HEIF: files from an independent encoder decode correctly")
     int error = IM_ERR_NONE;
     imImage* image = imFileImageLoad(path.c_str(), 0, &error);
 
+    if (codec_unavailable(error, cases[c].file))
+      continue;
     REQUIRE_MESSAGE(image != NULL, "load failed, error " << error);
     CHECK(image->width == cases[c].width);
     CHECK(image->height == cases[c].height);
@@ -393,4 +444,43 @@ TEST_CASE("HEIF: files from an independent encoder decode correctly")
 
     imImageDestroy(image);
   }
+}
+
+TEST_CASE("HEIF: at least one codec is actually available")
+{
+  /* Guards the skips above: without this, a libheif built with no codec
+   * plugins at all would sail through every case in this file.
+   *
+   * Self-contained on purpose -- doctest_discover_tests runs each case in its
+   * own process, so a counter shared with the cases above would always read
+   * zero here. */
+  const char* formats[2] = { "HEIF", "AVIF" };
+  const char* files[2] = { "probe.heic", "probe.avif" };
+  int working = 0;
+
+  for (int f = 0; f < 2; f++)
+  {
+    imImage* source = imImageCreate(16, 16, IM_GRAY, IM_BYTE);
+    REQUIRE(source != NULL);
+    fill_pattern(source);
+
+    int save_error = IM_ERR_NONE;
+    imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
+
+    if (loaded)
+    {
+      working++;
+      imImageDestroy(loaded);
+    }
+    else
+    {
+      MESSAGE(formats[f] << " unavailable, error " << save_error);
+    }
+
+    imImageDestroy(source);
+  }
+
+  CHECK_MESSAGE(working > 0,
+                "neither HEIF nor AVIF could round-trip -- this libheif has no "
+                "codec plugins, so every case in this file skipped");
 }

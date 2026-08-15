@@ -18,7 +18,11 @@ env:
   # vcpkg ports the IM build links against. liblzf is intentionally
   # absent — no vcpkg port exists, so the CMakeLists falls back to
   # the bundled src/liblzf/ tree.
-  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua libheif
+  #
+  # libheif's codecs are opt-in features: the default pulls in [core,hevc]
+  # (libde265 + x265) but no AV1, so AVIF had no encoder or decoder and every
+  # test that touches it failed. 'aom' supplies both.
+  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua "libheif[core,hevc,aom]"
 
 jobs:
   build:
