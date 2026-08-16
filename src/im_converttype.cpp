@@ -702,8 +702,16 @@ int imConvertDataType(const imImage* src_image, imImage* dst_image, int cpx2real
   if (!imImageMatchColorSpace(src_image, dst_image))
     return IM_ERR_DATA;
 
+  /* "If data type is the same nothing is done", per im_convert.h -- so this
+     is success, not a failure. It used to return IM_ERR_DATA, which is also
+     the code for a genuine colour space mismatch two lines above, so a caller
+     could not tell a no-op from a real error.
+
+     imConvertColorSpace documents the same rule for its own dimension ("if
+     color mode is the same nothing is done") and has always returned
+     IM_ERR_NONE for it; this brings the pair back into agreement. */
   if (src_image->data_type == dst_image->data_type)
-    return IM_ERR_DATA;
+    return IM_ERR_NONE;
 
   int total_count = src_image->depth * src_image->count;
   int counter_total = src_image->depth * src_image->height;

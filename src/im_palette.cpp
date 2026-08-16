@@ -52,7 +52,15 @@ int imPaletteFindNearest(const long* palette, int palette_count, long color)
   assert(palette);
   assert(palette_count);
 
-  int lSqrDiff, lBestDiff = (unsigned int)-1;
+  /* Unsigned, both of them. The sentinel is (unsigned int)-1 -- the largest
+     possible distance -- but lBestDiff was declared int, so it converted to
+     -1 and "lSqrDiff < lBestDiff" could never hold for a squared distance.
+     Every colour without an exact match in the palette came back as -1, which
+     is the one value the caller cannot use as an index.
+
+     A real distance cannot overflow either type: the largest is 3*255*255,
+     or 195075. */
+  unsigned int lSqrDiff, lBestDiff = (unsigned int)-1;
   int pIndex = -1;
 
   imbyte red1, green1, blue1;

@@ -596,21 +596,13 @@ TEST_CASE("convert: demoting scales by the range the cast mode selects")
   imImageDestroy(dst);
 }
 
-TEST_CASE("convert: the same data type is a no-op, not an error"
-          * doctest::should_fail())
+TEST_CASE("convert: the same data type is a no-op, not an error")
 {
-  /* im_convert.h says of imConvertDataType: "Images must be of the same size
-     and color mode. If data type is the same nothing is done." The
-     implementation instead returns IM_ERR_DATA the moment the two types
-     match, which a caller following the documentation reads as a failure --
-     and IM_ERR_DATA is the same code it returns for a genuine mismatch of
-     colour space, so the two are indistinguishable.
-
-     One of the two is wrong and it is not obvious which: erroring on a
-     conversion that is not one is defensible, but it is not what the header
-     promises. Stated here as the documented behaviour. Fix it in whichever
-     direction, then delete the should_fail decorator -- and if the code is
-     what stays, correct the header. */
+  /* im_convert.h: "If data type is the same nothing is done." This used to
+     return IM_ERR_DATA -- the same code as a genuine colour space mismatch,
+     so a caller could not tell the two apart. imConvertColorSpace documents
+     the identical rule for its own dimension and has always returned
+     IM_ERR_NONE, which is what decided the direction. */
   imImage* src = create(IM_GRAY, IM_BYTE);
   imImage* dst = create(IM_GRAY, IM_BYTE);
 
@@ -620,8 +612,14 @@ TEST_CASE("convert: the same data type is a no-op, not an error"
 
   CHECK(imConvertDataType(src, dst, IM_CPX_REAL, 0, 0, IM_CAST_MINMAX) == IM_ERR_NONE);
 
+  /* A real mismatch still has to be reported, or the change would have
+     bought silence rather than clarity. */
+  imImage* wrong_space = create(IM_RGB, IM_BYTE);
+  CHECK(imConvertDataType(src, wrong_space, IM_CPX_REAL, 0, 0, IM_CAST_MINMAX) == IM_ERR_DATA);
+
   imImageDestroy(src);
   imImageDestroy(dst);
+  imImageDestroy(wrong_space);
 }
 
 
