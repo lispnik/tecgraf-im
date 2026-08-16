@@ -36,9 +36,12 @@ static int DoUnaryPointOp(T1 *src_map, T2 *dst_map, int width, int height, int d
     IM_BEGIN_PROCESSING; 
     
     double dst_value;
-    int d = i%count;
-    int y = (i - d*count)%width;
-    int x = i - d*count - y*width;
+    /* i runs over the planes end to end, so the plane is the quotient by the
+       plane size and the pixel is the remainder. */
+    int d = i/count;
+    int offset = i - d*count;
+    int y = offset/width;
+    int x = offset - y*width;
 
     if (func((double)src_map[i], &dst_value, params, userdata, x, y, d))
       dst_map[i] = (T2)dst_value;
@@ -173,7 +176,9 @@ static int DoUnaryPointColorOp(T1 **src_map, T2 **dst_map, int width, int height
 #endif
     IM_BEGIN_PROCESSING; 
     
-    int y = i%width;
+    /* One iteration per pixel here rather than per sample, so i is the pixel
+       index straight away: the row is the quotient by the width. */
+    int y = i/width;
     int x = i - y*width;
 
     int d;
@@ -324,9 +329,12 @@ static int DoMultiPointOp(T1 **src_map, T2 *dst_map, int width, int height, int 
     IM_BEGIN_PROCESSING; 
     
     double dst_value;
-    int d = i%count;
-    int y = (i - d*count)%width;
-    int x = i - d*count - y*width;
+    /* Same decomposition as DoUnaryPointOp: plane first, then the pixel
+       within it. */
+    int d = i/count;
+    int offset = i - d*count;
+    int y = offset/width;
+    int x = offset - y*width;
     int toffset = IM_THREAD_NUM*src_count;
 
     for(int j = 0; j < src_count; j++)
@@ -475,7 +483,8 @@ static int DoMultiPointColorOp(T1 ***src_map, T2 **dst_map, int width, int heigh
     IM_BEGIN_PROCESSING; 
     
     double dst_value[IM_MAXDEPTH];
-    int y = i%width;
+    /* Per pixel, as in DoUnaryPointColorOp. */
+    int y = i/width;
     int x = i - y*width;
     int toffset = IM_THREAD_NUM*(src_count*src_depth);
 
