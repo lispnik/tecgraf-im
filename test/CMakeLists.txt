@@ -32,7 +32,7 @@ endif()
 # their callbacks, so the OpenMP build would make call counts and visit order
 # depend on the host's core count.
 if(TARGET im_process)
-    target_sources(im_tests PRIVATE test_process.cpp test_process2.cpp)
+    target_sources(im_tests PRIVATE test_process.cpp test_process2.cpp test_plus.cpp)
     target_link_libraries(im_tests PRIVATE im_process)
 endif()
 

@@ -284,12 +284,18 @@ namespace im
         IncRef();
     }
     Image(const char* file_name, int index, int &error, bool as_bitmap) {
+      /* The two branches were the wrong way round: as_bitmap selected
+         imFileImageLoad and clearing it selected imFileImageLoadBitmap, so
+         the flag did the opposite of what it is named for. File::LoadFrame
+         below takes the same flag and has always dispatched it correctly,
+         which is what settles that this was a slip rather than a convention.
+         Nothing in the tree instantiated it, so nothing noticed. */
       if (as_bitmap)
-        im_image = imFileImageLoad(file_name, index, &error);
-      else
         im_image = imFileImageLoadBitmap(file_name, index, &error);
+      else
+        im_image = imFileImageLoad(file_name, index, &error);
       if (im_image)
-        IncRef(); 
+        IncRef();
     }
     Image(const Image& ref_image) {
       im_image = ref_image.im_image;
