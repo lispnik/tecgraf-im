@@ -680,3 +680,765 @@ TEST_CASE("plus: the Process namespace forwards to libim_process")
     CHECK(new_height == ref_height);
   }
 }
+
+
+/* ================================================================== *
+ * Breadth: every wrapper below is run beside the C function it claims
+ * to call, on the same inputs, and the two results compared.
+ *
+ * The comparison does not need to know what the operation computes. If the
+ * wrapper forwards its arguments correctly the two are bit-identical, and if
+ * it swaps a pair or picks a different overload they diverge -- which is the
+ * only failure mode a header of thin inline forwarders really has. That makes
+ * it possible to cover the wide namespaces at a rate that writing expected
+ * values never would.
+ *
+ * Operations that consume randomness are called but not compared; they are
+ * marked where they appear.
+ * ================================================================== */
+
+namespace {
+
+const int BW = 16;
+const int BH = 12;
+
+imImage* c_image(int color_space, int data_type)
+{
+  imImage* image = imImageCreate(BW, BH, color_space, data_type);
+  REQUIRE(image != NULL);
+  return image;
+}
+
+void fill_c(imImage* image)
+{
+  int planes = image->has_alpha ? image->depth + 1 : image->depth;
+  for (int p = 0; p < planes; p++)
+    for (int i = 0; i < image->count; i++)
+      ((imbyte**)image->data)[p][i] = (imbyte)((i * 7 + p * 31) & 0xFF);
+}
+
+void fill_plus(im::Image& image)
+{
+  int planes = image.HasAlpha() ? image.Depth() + 1 : image.Depth();
+  for (int p = 0; p < planes; p++)
+    for (int i = 0; i < BW * BH; i++)
+      image.SetValue(p, i / BW, i % BW, (double)((i * 7 + p * 31) & 0xFF));
+}
+
+/* Byte-for-byte over every plane, alpha included. */
+bool same_data(const imImage* a, const imImage* b)
+{
+  if (a->width != b->width || a->height != b->height ||
+      a->data_type != b->data_type || a->depth != b->depth)
+    return false;
+
+  int planes = a->has_alpha ? a->depth + 1 : a->depth;
+  int plane_bytes = a->count * imDataTypeSize(a->data_type);
+  for (int p = 0; p < planes; p++)
+    if (memcmp(a->data[p], b->data[p], plane_bytes) != 0)
+      return false;
+  return true;
+}
+
+} /* namespace */
+
+
+TEST_CASE("plus: the threshold wrappers match their C functions")
+{
+  im::Image src(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image via_plus(BW, BH, IM_BINARY, IM_BYTE);
+  REQUIRE(!src.Failed());
+  fill_plus(src);
+
+  imImage* c_src = c_image(IM_GRAY, IM_BYTE);
+  imImage* via_c = c_image(IM_BINARY, IM_BYTE);
+  fill_c(c_src);
+
+  SUBCASE("Threshold")
+  {
+    im::Process::Threshold(src, via_plus, 100, 1);
+    imProcessThreshold(c_src, via_c, 100, 1);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("SliceThreshold")
+  {
+    im::Process::SliceThreshold(src, via_plus, 50, 150);
+    imProcessSliceThreshold(c_src, via_c, 50, 150);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("HysteresisThreshold")
+  {
+    im::Process::HysteresisThreshold(src, via_plus, 50, 150);
+    imProcessHysteresisThreshold(c_src, via_c, 50, 150);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("OtsuThreshold")
+  {
+    CHECK(im::Process::OtsuThreshold(src, via_plus) ==
+          imProcessOtsuThreshold(c_src, via_c));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("UniformErrThreshold")
+  {
+    CHECK(im::Process::UniformErrThreshold(src, via_plus) ==
+          imProcessUniformErrThreshold(c_src, via_c));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("PercentThreshold")
+  {
+    CHECK(im::Process::PercentThreshold(src, via_plus, 40) ==
+          imProcessPercentThreshold(c_src, via_c, 40));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("MinMaxThreshold")
+  {
+    CHECK(im::Process::MinMaxThreshold(src, via_plus) ==
+          doctest::Approx(imProcessMinMaxThreshold(c_src, via_c)));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("DiffusionErrThreshold")
+  {
+    im::Process::DiffusionErrThreshold(src, via_plus, 120);
+    imProcessDiffusionErrThreshold(c_src, via_c, 120);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("ThresholdByDiff")
+  {
+    im::Image other(BW, BH, IM_GRAY, IM_BYTE);
+    other.Clear();
+    imImage* c_other = c_image(IM_GRAY, IM_BYTE);
+    imImageClear(c_other);
+
+    im::Process::ThresholdByDiff(src, other, via_plus);
+    imProcessThresholdByDiff(c_src, c_other, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+    imImageDestroy(c_other);
+  }
+
+  imImageDestroy(c_src);
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the gray morphology wrappers match their C functions")
+{
+  im::Image src(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image via_plus(BW, BH, IM_GRAY, IM_BYTE);
+  REQUIRE(!src.Failed());
+  fill_plus(src);
+
+  imImage* c_src = c_image(IM_GRAY, IM_BYTE);
+  imImage* via_c = c_image(IM_GRAY, IM_BYTE);
+  fill_c(c_src);
+
+  SUBCASE("Erode")
+  {
+    CHECK(im::Process::GrayMorphErode(src, via_plus, 3) ==
+          imProcessGrayMorphErode(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Dilate")
+  {
+    CHECK(im::Process::GrayMorphDilate(src, via_plus, 3) ==
+          imProcessGrayMorphDilate(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Open")
+  {
+    CHECK(im::Process::GrayMorphOpen(src, via_plus, 3) ==
+          imProcessGrayMorphOpen(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Close")
+  {
+    CHECK(im::Process::GrayMorphClose(src, via_plus, 3) ==
+          imProcessGrayMorphClose(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("TopHat")
+  {
+    CHECK(im::Process::GrayMorphTopHat(src, via_plus, 3) ==
+          imProcessGrayMorphTopHat(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Well")
+  {
+    CHECK(im::Process::GrayMorphWell(src, via_plus, 3) ==
+          imProcessGrayMorphWell(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Gradient")
+  {
+    CHECK(im::Process::GrayMorphGradient(src, via_plus, 3) ==
+          imProcessGrayMorphGradient(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+
+  imImageDestroy(c_src);
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the binary morphology wrappers match their C functions")
+{
+  im::Image src(BW, BH, IM_BINARY, IM_BYTE);
+  im::Image via_plus(BW, BH, IM_BINARY, IM_BYTE);
+  REQUIRE(!src.Failed());
+  for (int i = 0; i < BW * BH; i++)
+    src.SetValue(0, i / BW, i % BW, (double)((i / 3) % 2));
+
+  imImage* c_src = c_image(IM_BINARY, IM_BYTE);
+  imImage* via_c = c_image(IM_BINARY, IM_BYTE);
+  for (int i = 0; i < c_src->count; i++)
+    ((imbyte*)c_src->data[0])[i] = (imbyte)((i / 3) % 2);
+
+  SUBCASE("Erode")
+  {
+    CHECK(im::Process::BinMorphErode(src, via_plus, 3, 1) ==
+          imProcessBinMorphErode(c_src, via_c, 3, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Dilate")
+  {
+    CHECK(im::Process::BinMorphDilate(src, via_plus, 3, 1) ==
+          imProcessBinMorphDilate(c_src, via_c, 3, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Open")
+  {
+    CHECK(im::Process::BinMorphOpen(src, via_plus, 3, 1) ==
+          imProcessBinMorphOpen(c_src, via_c, 3, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Close")
+  {
+    CHECK(im::Process::BinMorphClose(src, via_plus, 3, 1) ==
+          imProcessBinMorphClose(c_src, via_c, 3, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Outline")
+  {
+    CHECK(im::Process::BinMorphOutline(src, via_plus, 3, 1) ==
+          imProcessBinMorphOutline(c_src, via_c, 3, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Thinning")
+  {
+    im::Process::BinThinZhangSuen(src, via_plus);
+    imProcessBinThinZhangSuen(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+
+  imImageDestroy(c_src);
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the convolution wrappers match their C functions")
+{
+  im::Image src(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image via_plus(BW, BH, IM_GRAY, IM_BYTE);
+  REQUIRE(!src.Failed());
+  fill_plus(src);
+
+  imImage* c_src = c_image(IM_GRAY, IM_BYTE);
+  imImage* via_c = c_image(IM_GRAY, IM_BYTE);
+  fill_c(c_src);
+
+  SUBCASE("MeanConvolve")
+  {
+    CHECK(im::Process::MeanConvolve(src, via_plus, 3) ==
+          imProcessMeanConvolve(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("GaussianConvolve")
+  {
+    CHECK(im::Process::GaussianConvolve(src, via_plus, 1.5) ==
+          imProcessGaussianConvolve(c_src, via_c, 1.5));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("MedianConvolve")
+  {
+    CHECK(im::Process::MedianConvolve(src, via_plus, 3) ==
+          imProcessMedianConvolve(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("RangeConvolve")
+  {
+    CHECK(im::Process::RangeConvolve(src, via_plus, 3) ==
+          imProcessRangeConvolve(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("RankMaxConvolve")
+  {
+    CHECK(im::Process::RankMaxConvolve(src, via_plus, 3) ==
+          imProcessRankMaxConvolve(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("RankMinConvolve")
+  {
+    CHECK(im::Process::RankMinConvolve(src, via_plus, 3) ==
+          imProcessRankMinConvolve(c_src, via_c, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("SobelConvolve")
+  {
+    CHECK(im::Process::SobelConvolve(src, via_plus) ==
+          imProcessSobelConvolve(c_src, via_c));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("PrewittConvolve")
+  {
+    CHECK(im::Process::PrewittConvolve(src, via_plus) ==
+          imProcessPrewittConvolve(c_src, via_c));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Convolve with an explicit kernel")
+  {
+    /* The kernel is a third image, which is where an argument order slip
+       would actually be possible. */
+    im::Image kernel = im::Kernel::Laplacian4();
+    CHECK(im::Process::Convolve(src, via_plus, kernel) ==
+          imProcessConvolve(c_src, via_c, kernel.GetHandle()));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Sharp")
+  {
+    CHECK(im::Process::Sharp(src, via_plus, 1.0, 0.0) ==
+          imProcessSharp(c_src, via_c, 1.0, 0.0));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+  SUBCASE("Unsharp")
+  {
+    CHECK(im::Process::Unsharp(src, via_plus, 1.5, 1.0, 0.0) ==
+          imProcessUnsharp(c_src, via_c, 1.5, 1.0, 0.0));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+  }
+
+  imImageDestroy(c_src);
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the geometric wrappers match their C functions")
+{
+  im::Image src(BW, BH, IM_RGB, IM_BYTE);
+  REQUIRE(!src.Failed());
+  fill_plus(src);
+
+  imImage* c_src = c_image(IM_RGB, IM_BYTE);
+  fill_c(c_src);
+
+  SUBCASE("Mirror, Flip and Rotate180 keep the size")
+  {
+    im::Image via_plus(BW, BH, IM_RGB, IM_BYTE);
+    imImage* via_c = c_image(IM_RGB, IM_BYTE);
+
+    im::Process::Mirror(src, via_plus);
+    imProcessMirror(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::Flip(src, via_plus);
+    imProcessFlip(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::Rotate180(src, via_plus);
+    imProcessRotate180(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(via_c);
+  }
+
+  SUBCASE("Rotate90 swaps them")
+  {
+    im::Image via_plus(BH, BW, IM_RGB, IM_BYTE);
+    imImage* via_c = imImageCreate(BH, BW, IM_RGB, IM_BYTE);
+    REQUIRE(via_c != NULL);
+
+    CHECK(im::Process::Rotate90(src, via_plus, 1) ==
+          imProcessRotate90(c_src, via_c, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(via_c);
+  }
+
+  SUBCASE("Crop takes a corner")
+  {
+    im::Image via_plus(BW / 2, BH / 2, IM_RGB, IM_BYTE);
+    imImage* via_c = imImageCreate(BW / 2, BH / 2, IM_RGB, IM_BYTE);
+    REQUIRE(via_c != NULL);
+
+    CHECK(im::Process::Crop(src, via_plus, 2, 3) ==
+          imProcessCrop(c_src, via_c, 2, 3));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(via_c);
+  }
+
+  SUBCASE("Resize and Reduce change it")
+  {
+    im::Image via_plus(BW * 2, BH * 2, IM_RGB, IM_BYTE);
+    imImage* via_c = imImageCreate(BW * 2, BH * 2, IM_RGB, IM_BYTE);
+    REQUIRE(via_c != NULL);
+
+    CHECK(im::Process::Resize(src, via_plus, 1) ==
+          imProcessResize(c_src, via_c, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+    imImageDestroy(via_c);
+
+    im::Image small(BW / 2, BH / 2, IM_RGB, IM_BYTE);
+    imImage* c_small = imImageCreate(BW / 2, BH / 2, IM_RGB, IM_BYTE);
+    REQUIRE(c_small != NULL);
+
+    CHECK(im::Process::Reduce(src, small, 1) ==
+          imProcessReduce(c_src, c_small, 1));
+    CHECK(same_data(small.GetHandle(), c_small));
+
+    CHECK(im::Process::ReduceBy4(src, small) ==
+          imProcessReduceBy4(c_src, c_small));
+    CHECK(same_data(small.GetHandle(), c_small));
+    imImageDestroy(c_small);
+  }
+
+  SUBCASE("Rotate carries its angle through")
+  {
+    /* Five arguments, two of them a matched pair -- the shape most likely to
+       be forwarded in the wrong order. */
+    im::Image via_plus(BW, BH, IM_RGB, IM_BYTE);
+    imImage* via_c = c_image(IM_RGB, IM_BYTE);
+
+    CHECK(im::Process::Rotate(src, via_plus, 0.8, 0.6, 1) ==
+          imProcessRotate(c_src, via_c, 0.8, 0.6, 1));
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(via_c);
+  }
+
+  imImageDestroy(c_src);
+}
+
+TEST_CASE("plus: the tone and colour wrappers match their C functions")
+{
+  SUBCASE("on a gray image")
+  {
+    im::Image src(BW, BH, IM_GRAY, IM_BYTE);
+    im::Image via_plus(BW, BH, IM_GRAY, IM_BYTE);
+    fill_plus(src);
+
+    imImage* c_src = c_image(IM_GRAY, IM_BYTE);
+    imImage* via_c = c_image(IM_GRAY, IM_BYTE);
+    fill_c(c_src);
+
+    im::Process::Negative(src, via_plus);
+    imProcessNegative(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::EqualizeHistogram(src, via_plus);
+    imProcessEqualizeHistogram(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::ExpandHistogram(src, via_plus, 5);
+    imProcessExpandHistogram(c_src, via_c, 5);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::Posterize(src, via_plus, 3);
+    imProcessPosterize(c_src, via_c, 3);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::Pixelate(src, via_plus, 4);
+    imProcessPixelate(c_src, via_c, 4);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    im::Process::QuantizeGrayUniform(src, via_plus, 8);
+    imProcessQuantizeGrayUniform(c_src, via_c, 8);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    double gamma_params[1] = { 2.0 };
+    im::Process::ToneGamut(src, via_plus, IM_GAMUT_POW, gamma_params);
+    imProcessToneGamut(c_src, via_c, IM_GAMUT_POW, gamma_params);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(c_src);
+    imImageDestroy(via_c);
+  }
+
+  SUBCASE("on a colour image")
+  {
+    im::Image src(BW, BH, IM_RGB, IM_BYTE);
+    im::Image via_plus(BW, BH, IM_RGB, IM_BYTE);
+    fill_plus(src);
+
+    imImage* c_src = c_image(IM_RGB, IM_BYTE);
+    imImage* via_c = c_image(IM_RGB, IM_BYTE);
+    fill_c(c_src);
+
+    im::Process::FixBGR(src, via_plus);
+    imProcessFixBGR(c_src, via_c);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    /* NormalizeComponents divides by the component sum, so its target has to
+       be IM_FLOAT or IM_DOUBLE -- the header says so, and nothing enforces
+       it. Handing it a byte target writes floats into a byte-sized buffer and
+       walks off the end of the allocation, which is the same unchecked
+       precondition the arithmetic operations have. */
+    {
+      im::Image normal_plus(BW, BH, IM_RGB, IM_FLOAT);
+      imImage* normal_c = imImageCreate(BW, BH, IM_RGB, IM_FLOAT);
+      REQUIRE(normal_c != NULL);
+
+      im::Process::NormalizeComponents(src, normal_plus);
+      imProcessNormalizeComponents(c_src, normal_c);
+      CHECK(same_data(normal_plus.GetHandle(), normal_c));
+      imImageDestroy(normal_c);
+    }
+
+    /* Quantization produces an indexed image, not another RGB one. */
+    {
+      im::Image map_plus(BW, BH, IM_MAP, IM_BYTE);
+      imImage* map_c = imImageCreate(BW, BH, IM_MAP, IM_BYTE);
+      REQUIRE(map_c != NULL);
+
+      im::Process::QuantizeRGBUniform(src, map_plus, 0);
+      imProcessQuantizeRGBUniform(c_src, map_c, 0);
+      CHECK(same_data(map_plus.GetHandle(), map_c));
+      imImageDestroy(map_c);
+    }
+
+    double src_color[3] = { 10, 20, 30 };
+    double dst_color[3] = { 40, 50, 60 };
+    im::Process::ReplaceColor(src, via_plus, src_color, dst_color);
+    imProcessReplaceColor(c_src, via_c, src_color, dst_color);
+    CHECK(same_data(via_plus.GetHandle(), via_c));
+
+    imImageDestroy(c_src);
+    imImageDestroy(via_c);
+  }
+
+  SUBCASE("splitting a colour image into planes and back")
+  {
+    im::Image src(BW, BH, IM_RGB, IM_BYTE);
+    fill_plus(src);
+
+    im::Image parts[3] = {
+      im::Image(BW, BH, IM_GRAY, IM_BYTE),
+      im::Image(BW, BH, IM_GRAY, IM_BYTE),
+      im::Image(BW, BH, IM_GRAY, IM_BYTE)
+    };
+    im::Process::SplitComponents(src, parts);
+
+    for (int p = 0; p < 3; p++)
+    {
+      CAPTURE(p);
+      for (int i = 0; i < BW * BH; i++)
+        CHECK(parts[p].GetValue(0, i / BW, i % BW) ==
+              src.GetValue(p, i / BW, i % BW));
+    }
+
+    im::Image rebuilt(BW, BH, IM_RGB, IM_BYTE);
+    im::Process::MergeComponents(parts, rebuilt);
+    CHECK(same_data(rebuilt.GetHandle(), src.GetHandle()));
+  }
+}
+
+TEST_CASE("plus: the bitwise wrappers match their C functions")
+{
+  im::Image a(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image b(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image via_plus(BW, BH, IM_GRAY, IM_BYTE);
+  fill_plus(a);
+  fill_plus(b);
+
+  imImage* c_a = c_image(IM_GRAY, IM_BYTE);
+  imImage* c_b = c_image(IM_GRAY, IM_BYTE);
+  imImage* via_c = c_image(IM_GRAY, IM_BYTE);
+  fill_c(c_a);
+  fill_c(c_b);
+
+  im::Process::BitwiseOp(a, b, via_plus, IM_BIT_AND);
+  imProcessBitwiseOp(c_a, c_b, via_c, IM_BIT_AND);
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  im::Process::BitwiseNot(a, via_plus);
+  imProcessBitwiseNot(c_a, via_c);
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  im::Process::BitMask(a, via_plus, 0x3C, IM_BIT_OR);
+  imProcessBitMask(c_a, via_c, 0x3C, IM_BIT_OR);
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  im::Process::BitPlane(a, via_plus, 3, 0);
+  imProcessBitPlane(c_a, via_c, 3, 0);
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  imImageDestroy(c_a);
+  imImageDestroy(c_b);
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the render wrappers match their C functions")
+{
+  /* Deterministic renders only. RenderRandomNoise and the three noise
+     wrappers consume the random generator, so two calls cannot agree; they
+     are exercised for compilation and linkage in the case after this one. */
+  im::Image via_plus(BW, BH, IM_GRAY, IM_BYTE);
+  imImage* via_c = c_image(IM_GRAY, IM_BYTE);
+
+  double value[1] = { 77 };
+  CHECK(im::Process::RenderConstant(via_plus, value) ==
+        imProcessRenderConstant(via_c, value));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderRamp(via_plus, 0, 255, 1) ==
+        imProcessRenderRamp(via_c, 0, 255, 1));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderBox(via_plus, 6, 4) ==
+        imProcessRenderBox(via_c, 6, 4));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderCone(via_plus, 5) ==
+        imProcessRenderCone(via_c, 5));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderTent(via_plus, 6, 4) ==
+        imProcessRenderTent(via_c, 6, 4));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderWheel(via_plus, 2, 5) ==
+        imProcessRenderWheel(via_c, 2, 5));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderSinc(via_plus, 2.0, 2.0) ==
+        imProcessRenderSinc(via_c, 2.0, 2.0));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderGaussian(via_plus, 2.0) ==
+        imProcessRenderGaussian(via_c, 2.0));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderCosine(via_plus, 4.0, 4.0) ==
+        imProcessRenderCosine(via_c, 4.0, 4.0));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  CHECK(im::Process::RenderGrid(via_plus, 3, 3) ==
+        imProcessRenderGrid(via_c, 3, 3));
+  CHECK(same_data(via_plus.GetHandle(), via_c));
+
+  imImageDestroy(via_c);
+}
+
+TEST_CASE("plus: the random render wrappers compile, link and run")
+{
+  /* No comparison is possible -- each call draws from the generator -- so
+     this case exists for the two failure modes that remain: a wrapper that
+     does not compile, and one that does not link. Both have happened in this
+     header already. */
+  im::Image target(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image source(BW, BH, IM_GRAY, IM_BYTE);
+  fill_plus(source);
+
+  CHECK(im::Process::RenderRandomNoise(target) != 0);
+  CHECK(im::Process::RenderAddGaussianNoise(source, target, 0.0, 10.0) != 0);
+  CHECK(im::Process::RenderAddUniformNoise(source, target, 0.0, 10.0) != 0);
+  CHECK(im::Process::RenderAddSpeckleNoise(source, target, 5.0) != 0);
+}
+
+TEST_CASE("plus: AttribTable copies its entries instead of an uninitialised pointer")
+{
+  im::AttribTable table(101);
+  table.SetInteger("count", IM_INT, 7);
+  table.SetReal("ratio", IM_DOUBLE, 2.5);
+  table.SetString("label", "hello");
+  CHECK(table.Count() == 3);
+
+  /* The copy constructor never assigned its own ptable before copying into
+     it, so this dereferenced whatever the member happened to hold. Nothing
+     instantiated it, so nothing found out. */
+  im::AttribTable copy(table);
+  CHECK(copy.Count() == 3);
+  CHECK(copy.GetInteger("count") == 7);
+  CHECK(copy.GetReal("ratio") == doctest::Approx(2.5));
+  CHECK(strcmp(copy.GetString("label"), "hello") == 0);
+
+  SUBCASE("and the copy is independent")
+  {
+    copy.SetInteger("count", IM_INT, 99);
+    CHECK(table.GetInteger("count") == 7);
+  }
+
+  SUBCASE("and the rest of the table interface works")
+  {
+    im::AttribTable other(101);
+    other.SetInteger("extra", IM_INT, 5);
+    other.MergeFrom(table);
+    CHECK(other.Count() == 4);
+    CHECK(other.GetInteger("count") == 7);
+
+    other.Reset("count");
+    CHECK(other.Get("count") == NULL);
+
+    other.RemoveAll();
+    CHECK(other.Count() == 0);
+  }
+}
+
+TEST_CASE("plus: the Analyze namespace forwards to the C analysis")
+{
+  im::Image binary(BW, BH, IM_BINARY, IM_BYTE);
+  REQUIRE(!binary.Failed());
+  binary.Clear();
+
+  /* Two separated blobs, so the region count is knowable without trusting
+     the implementation. */
+  binary.SetValue(0, 1, 1, 1);
+  binary.SetValue(0, 1, 2, 1);
+  binary.SetValue(0, 2, 1, 1);
+  binary.SetValue(0, 8, 10, 1);
+  binary.SetValue(0, 9, 10, 1);
+
+  im::Image regions(BW, BH, IM_GRAY, IM_USHORT);
+  int region_count = 0;
+  CHECK(im::Analyze::FindRegions(binary, regions, 4, 0, region_count) != 0);
+  CHECK(region_count == 2);
+
+  im::MeasureTable measures(region_count);
+  CHECK(measures.RegionCount() == 2);
+
+  CHECK(im::Analyze::MeasureArea(regions, measures) != 0);
+  CHECK(im::Analyze::MeasureCentroid(regions, measures) != 0);
+  CHECK(im::Analyze::MeasurePerimeter(regions, measures) != 0);
+
+  /* The first blob has three pixels and the second two, whichever order the
+     labelling assigned them. */
+  const int* area = (const int*)measures.GetMeasure("Area");
+  REQUIRE(area != NULL);
+  CHECK(((area[0] == 3 && area[1] == 2) || (area[0] == 2 && area[1] == 3)));
+}
+
+TEST_CASE("plus: FileRaw opens and closes a raw file")
+{
+  std::string path = scratch("plus_raw.raw");
+
+  im::Image source(BW, BH, IM_GRAY, IM_BYTE);
+  fill_plus(source);
+
+  int error = IM_ERR_NONE;
+  {
+    im::FileRaw out(path.c_str(), error, true);
+    REQUIRE_MESSAGE(!out.Failed(), "create failed, error " << error);
+
+    out.SetAttribInteger("Width", IM_INT, BW);
+    out.SetAttribInteger("Height", IM_INT, BH);
+    out.SetAttribInteger("ColorMode", IM_INT, IM_GRAY);
+    out.SetAttribInteger("DataType", IM_INT, IM_BYTE);
+    CHECK(out.SaveImage(source) == IM_ERR_NONE);
+  }
+
+  im::FileRaw in(path.c_str(), error, false);
+  REQUIRE_MESSAGE(!in.Failed(), "open failed, error " << error);
+
+  in.SetAttribInteger("Width", IM_INT, BW);
+  in.SetAttribInteger("Height", IM_INT, BH);
+  in.SetAttribInteger("ColorMode", IM_INT, IM_GRAY);
+  in.SetAttribInteger("DataType", IM_INT, IM_BYTE);
+
+  im::Image loaded = in.LoadImage(0, error);
+  REQUIRE_MESSAGE(!loaded.Failed(), "load failed, error " << error);
+  CHECK(same_data(loaded.GetHandle(), source.GetHandle()));
+}

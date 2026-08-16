@@ -132,6 +132,12 @@ namespace im
     AttribTable(int hash_size) {
       ptable = imAttribTableCreate(hash_size); }
     AttribTable(const AttribTable& attrib_table) {
+      /* ptable was never assigned here, so the copy went straight into an
+         indeterminate pointer -- imAttribTableCopyFrom walks the source and
+         inserts into whatever the uninitialised member happened to hold.
+         Nothing instantiated this constructor, so nothing found out.
+         imAttribTableCreate takes 0 to mean its default hash size. */
+      ptable = imAttribTableCreate(0);
       imAttribTableCopyFrom(ptable, attrib_table.ptable); }
     virtual ~AttribTable() {
       if (ptable)
