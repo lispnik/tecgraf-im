@@ -438,12 +438,13 @@ static void doMergeComplex(T* map1, T* map2, imComplex<T>* map, int total_count,
   {
     if (polar)
     {
-      T phase = map2[i];
-      if (phase > 180) phase -= 360;
-      phase /= 57.2957795f;
-
-      map[i].real = (T)(map1[i] * cos(phase));
-      map[i].imag = (T)(map1[i] * sin(phase));
+      /* Radians, matching what doSplitComplex stores: it writes cpxphase,
+         which is an atan2 result, so a polar split and merge now round-trips.
+         This used to read the phase as degrees -- wrapping above 180 and
+         dividing by 180/pi -- and so divided an angle that was already in
+         radians, collapsing every sample towards the positive real axis.
+         cpxpolar is the same computation this was open-coding. */
+      map[i] = cpxpolar(map1[i], map2[i]);
     }
     else
     {

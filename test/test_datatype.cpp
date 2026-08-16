@@ -11,6 +11,9 @@
 #include <im.h>
 #include <im_util.h>
 #include <im_raw.h>
+#include <im_image.h>
+#include <im_convert.h>
+#include <im_complex.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -220,4 +223,80 @@ TEST_CASE("RAW still reads a correctly described file")
   CHECK(dt == IM_BYTE);
 
   imFileClose(file);
+}
+
+/* ------------------------------------------------------------------ *
+ * Complex-to-real conversion
+ * ------------------------------------------------------------------ */
+
+TEST_CASE("imConvertDataType: the complex-to-real conversions are unscaled")
+{
+  /* Demoting complex to real is documented as using the complex2real
+     conversion and nothing else -- no min/max scan, no gamma -- so every
+     value here is exact rather than a tolerance on a rescaled range.
+     *
+     * IM_CPX_PHASE is the reason this case exists: it is the only caller of
+     * cpxphase outside imProcessSplitComplex, and cpxphase used to pass atan2
+     * its arguments in the wrong order, so the angle came out measured from
+     * the imaginary axis. Nothing here covered it. */
+  const int W = 5;
+  const float re[5] = { 3.0f, 1.0f, 0.0f, -1.0f,  0.0f };
+  const float im[5] = { 4.0f, 0.0f, 1.0f,  0.0f, -1.0f };
+
+  imImage* src = imImageCreate(W, 1, IM_GRAY, IM_CFLOAT);
+  imImage* dst = imImageCreate(W, 1, IM_GRAY, IM_FLOAT);
+  REQUIRE(src != NULL);
+  REQUIRE(dst != NULL);
+
+  imcfloat* data = (imcfloat*)src->data[0];
+  for (int i = 0; i < W; i++)
+  {
+    data[i].real = re[i];
+    data[i].imag = im[i];
+  }
+
+  const float* out = (const float*)dst->data[0];
+
+  SUBCASE("IM_CPX_REAL and IM_CPX_IMAG take a component each")
+  {
+    REQUIRE(imConvertDataType(src, dst, IM_CPX_REAL, 0, 0, IM_CAST_DIRECT) == IM_ERR_NONE);
+    for (int i = 0; i < W; i++)
+    {
+      CAPTURE(i);
+      CHECK(out[i] == re[i]);
+    }
+
+    REQUIRE(imConvertDataType(src, dst, IM_CPX_IMAG, 0, 0, IM_CAST_DIRECT) == IM_ERR_NONE);
+    for (int i = 0; i < W; i++)
+    {
+      CAPTURE(i);
+      CHECK(out[i] == im[i]);
+    }
+  }
+
+  SUBCASE("IM_CPX_MAG is the modulus")
+  {
+    REQUIRE(imConvertDataType(src, dst, IM_CPX_MAG, 0, 0, IM_CAST_DIRECT) == IM_ERR_NONE);
+    CHECK(out[0] == doctest::Approx(5.0f));   /* the 3-4-5 triangle */
+    CHECK(out[1] == doctest::Approx(1.0f));
+    CHECK(out[2] == doctest::Approx(1.0f));
+    CHECK(out[3] == doctest::Approx(1.0f));
+    CHECK(out[4] == doctest::Approx(1.0f));
+  }
+
+  SUBCASE("IM_CPX_PHASE is the argument, in radians, from the real axis")
+  {
+    REQUIRE(imConvertDataType(src, dst, IM_CPX_PHASE, 0, 0, IM_CAST_DIRECT) == IM_ERR_NONE);
+
+    /* The axes are what pin the argument order down: with atan2's arguments
+       swapped, (1,0) and (0,1) trade places. */
+    CHECK(out[1] == doctest::Approx(0.0f));                  /* (1,0)  -> 0    */
+    CHECK(out[2] == doctest::Approx(1.5707963f));            /* (0,1)  -> pi/2 */
+    CHECK(out[3] == doctest::Approx(3.1415927f));            /* (-1,0) -> pi   */
+    CHECK(out[4] == doctest::Approx(-1.5707963f));           /* (0,-1) -> -pi/2 */
+    CHECK(out[0] == doctest::Approx(0.9272952f));            /* (3,4)          */
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
 }

@@ -192,10 +192,15 @@ inline T cpxmag(const imComplex<T>& C)
   return sqrt(C.real*C.real + C.imag*C.imag);
 }
 
+/* atan2 takes (y, x), so the argument of a complex number is
+   atan2(imag, real). Passing them the other way round measured the angle from
+   the imaginary axis instead: (1,0) came back as pi/2 rather than 0, and
+   (0,1) as 0 rather than pi/2. In radians, matching cpxpolar below and every
+   other angle in this header. */
 template<class T>
 inline T cpxphase(const imComplex<T>& C)
 {
-  return atan2(C.real, C.imag);
+  return atan2(C.imag, C.real);
 }
 
 template<class T>
@@ -213,7 +218,9 @@ inline imComplex<T> cpxpolar(const T& mag, const T& phase)
 template<class T>
 inline imComplex<T> log(const imComplex<T>& C)
 {
-  return imComplex<T>(log(cpxmag(C)), atan2(C.real, C.imag));
+  /* Same argument order as cpxphase above -- the imaginary part of a complex
+     logarithm is the argument, so it had the same swap. */
+  return imComplex<T>(log(cpxmag(C)), atan2(C.imag, C.real));
 }
 
 template<class T>

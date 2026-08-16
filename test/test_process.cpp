@@ -1718,23 +1718,13 @@ TEST_CASE("complex: a polar split reports the magnitude")
   imImageDestroy(src); imImageDestroy(mag); imImageDestroy(phase);
 }
 
-TEST_CASE("complex: a polar split reports the phase measured from the real axis"
-          * doctest::should_fail())
+TEST_CASE("complex: a polar split reports the phase measured from the real axis")
 {
-  /* cpxphase (im_complex.h:196) is
-
-         return atan2(C.real, C.imag);
-
-     with the arguments the wrong way round: atan2 takes (y, x), so the angle
-     of a complex sample is atan2(imag, real). As written it returns the angle
-     measured from the imaginary axis instead -- (1,0) comes back as pi/2
-     rather than 0, and (0,1) as 0 rather than pi/2. cpxlog (im_complex.h:216)
-     repeats the same swap.
-
-     Stated here as the assertion that should hold. Delete the should_fail
-     decorator when cpxphase is fixed -- and check the FFT code in
-     src/process/im_fft.cpp at the same time, in case anything there has been
-     written to compensate. */
+  /* cpxphase used to pass atan2 its arguments the wrong way round, measuring
+     the angle from the imaginary axis: (1,0) came back as pi/2 rather than 0.
+     Nothing compensated for it -- cpxphase has only two callers, this one and
+     the IM_CPX_PHASE conversion in im_converttype.cpp, and im_fft.cpp does no
+     phase arithmetic of its own -- so both were simply wrong. */
   imImage* src   = create(IM_GRAY, IM_CFLOAT);
   imImage* mag   = create(IM_GRAY, IM_FLOAT);
   imImage* phase = create(IM_GRAY, IM_FLOAT);
@@ -1752,23 +1742,14 @@ TEST_CASE("complex: a polar split reports the phase measured from the real axis"
   imImageDestroy(src); imImageDestroy(mag); imImageDestroy(phase);
 }
 
-TEST_CASE("complex: a polar split and merge returns the original image"
-          * doctest::should_fail())
+TEST_CASE("complex: a polar split and merge returns the original image")
 {
-  /* The two halves disagree about the unit of the phase. doSplitComplex
-     stores whatever cpxphase returns, which is an atan2 result in radians;
-     doMergeComplex (im_arithmetic_un.cpp:410-412) reads it as degrees --
-
-         if (phase > 180) phase -= 360;
-         phase /= 57.2957795f;
-
-     -- so it divides an angle that is already in radians by 180/pi. A round
-     trip through polar form therefore collapses every sample towards the
-     positive real axis instead of returning it unchanged. The swapped atan2
-     in cpxphase compounds it.
-
-     Only the polar path is affected; the rectangular round-trip above is
-     exact. Delete the should_fail decorator once the two agree on a unit. */
+  /* The two halves used to disagree about the unit. doSplitComplex stores
+     cpxphase, an atan2 result in radians; doMergeComplex read it as degrees,
+     wrapping above 180 and dividing by 180/pi, so it divided an angle that
+     was already in radians and collapsed every sample towards the positive
+     real axis. Radians won, because cpxpolar and every other angle in
+     im_complex.h are radians and merge was the sole outlier. */
   imImage* src   = create(IM_GRAY, IM_CFLOAT);
   imImage* mag   = create(IM_GRAY, IM_FLOAT);
   imImage* phase = create(IM_GRAY, IM_FLOAT);
