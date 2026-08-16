@@ -16,9 +16,18 @@
 # Agreement observed when these were made, on the 32x24 source:
 #
 #   min, max, open, close, range   exact over the whole image, borders included
-#   median 3x3 and 5x5             exact in the interior; the borders differ
-#                                  because the two libraries pad differently
-#   mean 3x3                       within 1, which is rounding alone
+#   binary dilate, nearest-neighbour
+#     resize to an integer multiple,
+#     Otsu threshold                exact over the whole image
+#   median 3x3 and 5x5, binary
+#     erode                         exact in the interior; the borders differ
+#                                   because the two libraries pad differently
+#   mean 3x3, RGB to gray           within 1, which is rounding alone
+#
+# Downsampling is deliberately absent. IM and ImageMagick disagree completely
+# about which source pixel a destination pixel samples when shrinking -- 223
+# levels apart on this source -- so there is no useful reference to compare
+# against, only two defensible conventions.
 #
 # src.pgm is generated here too rather than by ImageMagick, so the input is
 # reproducible from this script alone. It mixes a gradient, a block pattern
@@ -43,6 +52,26 @@ for y in range(H):
             v = 255 if (x + y) % 2 else 0
         px.append(v)
 open('src.pgm', 'wb').write(b'P5\n%d %d\n255\n' % (W, H) + bytes(px))
+
+# A bilevel source for the binary morphology, and an RGB one for the colour
+# conversion. Both carry small features so an erode or dilate has something to
+# remove or fill rather than sweeping a flat field.
+bp = bytearray()
+for y in range(H):
+    for x in range(W):
+        bp.append(255 if ((x//3 + y//2) % 2 == 0 or (x*y) % 13 == 0) else 0)
+open('src_bin.pgm', 'wb').write(b'P5\n%d %d\n255\n' % (W, H) + bytes(bp))
+
+cp = bytearray()
+for y in range(H):
+    for x in range(W):
+        r = (x*8 + y*2) % 256
+        g = (y*10 + x*3) % 256
+        b = (x*5 + y*7 + 40) % 256
+        if (x//4 + y//3) % 2 == 0:
+            r = (r + 90) % 256
+        cp += bytes((r, g, b))
+open('src_rgb.ppm', 'wb').write(b'P6\n%d %d\n255\n' % (W, H) + bytes(cp))
 PY
 
 magick src.pgm -statistic Median  3x3 -depth 8 median3.pgm
@@ -52,6 +81,23 @@ magick src.pgm -statistic Maximum 3x3 -depth 8 max3.pgm
 magick src.pgm -statistic Mean    3x3 -depth 8 mean3.pgm
 magick src.pgm -morphology Open  Square:1 -depth 8 open3.pgm
 magick src.pgm -morphology Close Square:1 -depth 8 close3.pgm
+
+# Nearest neighbour to exactly twice the size, where the mapping is
+# unambiguous. See the note above about shrinking.
+magick src.pgm -filter Point -resize 64x48! -depth 8 resize_near2x.pgm
+
+# Otsu picks its own level from the histogram, so agreement here is agreement
+# about the algorithm rather than about applying a level someone chose.
+magick src.pgm -auto-threshold OTSU -depth 8 otsu.pgm
+
+# Binary morphology, on a bilevel source of its own.
+magick src_bin.pgm -morphology Erode  Square:1 -depth 8 bin_erode3.pgm
+magick src_bin.pgm -morphology Dilate Square:1 -depth 8 bin_dilate3.pgm
+
+# Rec601 luma, which is the transform imConvertColorSpace applies. ImageMagick
+# 7 would otherwise work in linear light and give a quite different answer, so
+# the -grayscale operator is named explicitly rather than -colorspace Gray.
+magick src_rgb.ppm -grayscale Rec601Luma -depth 8 rgb2gray601.pgm
 
 # The range filter is max minus min by definition, and ImageMagick has no
 # single statistic for it -- so this one is derived from the two outputs above

@@ -11,9 +11,11 @@
  * How closely the two agree is not uniform, and the cases below say which
  * they are relying on rather than applying one blanket tolerance:
  *
- *   minimum, maximum, open, close, range   exact over the whole image
- *   median 3x3 and 5x5                     exact in the interior only
- *   mean 3x3                               within 1
+ *   minimum, maximum, open, close, range,  exact over the whole image
+ *   binary dilate, 2x nearest resize,
+ *   Otsu threshold
+ *   median 3x3 and 5x5, binary erode       exact in the interior only
+ *   mean 3x3, RGB to gray                  within 1
  *
  * The borders are where a median disagrees because the two libraries pad the
  * window differently past the edge -- a genuine ambiguity in the operation,
@@ -29,6 +31,7 @@
 #include <im_util.h>
 #include <im_image.h>
 #include <im_process.h>
+#include <im_convert.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -294,6 +297,186 @@ TEST_CASE("golden: the mean filter matches within the rounding difference")
   REQUIRE(imProcessMeanConvolve(src, dst, 3) != 0);
   CHECK(worst_difference(dst, want, 1) <= 1);
   check_actually_filtered(dst, src);
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+
+/* ================================================================== *
+ * A second batch, covering operations outside the rank/morphology
+ * family. The agreement observed when the fixtures were made is noted
+ * on each; the regeneration script records it too.
+ * ================================================================== */
+
+TEST_CASE("golden: nearest-neighbour resize to an exact multiple")
+{
+  /* Only the enlargement. IM and ImageMagick disagree completely about which
+     source pixel a destination pixel samples when shrinking -- 223 levels
+     apart on this source -- and neither convention is wrong, so there is no
+     reference to compare a reduction against. Doubling is unambiguous: every
+     destination pixel has exactly one source pixel over it. */
+  imImage* src = load_golden("src.pgm");
+  imImage* dst = imImageCreate(64, 48, IM_GRAY, IM_BYTE);
+  REQUIRE(dst != NULL);
+
+  REQUIRE(imProcessResize(src, dst, 0) != 0);
+
+  imImage* want = load_golden("resize_near2x.pgm");
+  CHECK(worst_difference(dst, want, 0) == 0);
+
+  /* Each 2x2 block of the result is one source pixel repeated, which is what
+     nearest neighbour at an integer factor means -- asserted separately so a
+     reference that happened to be a blur could not slip through. */
+  for (int y = 0; y < 24; y++)
+  {
+    for (int x = 0; x < 32; x++)
+    {
+      CAPTURE(x); CAPTURE(y);
+      imbyte v = ((imbyte*)src->data[0])[y*32 + x];
+      CHECK(((imbyte*)dst->data[0])[(2*y)*64 + 2*x] == v);
+      CHECK(((imbyte*)dst->data[0])[(2*y)*64 + 2*x + 1] == v);
+      CHECK(((imbyte*)dst->data[0])[(2*y + 1)*64 + 2*x] == v);
+      CHECK(((imbyte*)dst->data[0])[(2*y + 1)*64 + 2*x + 1] == v);
+    }
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+TEST_CASE("golden: Otsu picks the same threshold as an independent implementation")
+{
+  /* The strongest of these, because the level is not given to the operation:
+     both libraries derive it from the histogram, so agreeing on the resulting
+     mask means agreeing on the algorithm rather than on applying a number
+     someone chose. IM reports the level it used -- 128 on this source. */
+  imImage* src = load_golden("src.pgm");
+  imImage* dst = imImageCreate(src->width, src->height, IM_BINARY, IM_BYTE);
+  REQUIRE(dst != NULL);
+
+  int level = imProcessOtsuThreshold(src, dst);
+  CHECK(level == 128);
+
+  /* IM writes 0 and 1; the reference is 0 and 255. */
+  imImage* want = load_golden("otsu.pgm");
+  for (int i = 0; i < src->count; i++)
+  {
+    CAPTURE(i);
+    int got = ((imbyte*)dst->data[0])[i];
+    int expected = ((imbyte*)want->data[0])[i] ? 1 : 0;
+    CHECK(got == expected);
+  }
+
+  /* And it is a real split rather than everything landing on one side. */
+  int ones = 0;
+  for (int i = 0; i < src->count; i++)
+    ones += ((imbyte*)dst->data[0])[i];
+  CHECK(ones > src->count / 10);
+  CHECK(ones < (src->count * 9) / 10);
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+TEST_CASE("golden: binary morphology matches on a bilevel image")
+{
+  /* The gray erode and dilate are already pinned above; these are the
+     separate binary implementations, which take a different path entirely --
+     imProcessBinMorphConvolve with a kernel of ones rather than a rank
+     filter. The fixture is 0 and 255, IM works in 0 and 1. */
+  imImage* fixture = load_golden("src_bin.pgm");
+  imImage* src = imImageCreate(fixture->width, fixture->height, IM_BINARY, IM_BYTE);
+  REQUIRE(src != NULL);
+  for (int i = 0; i < fixture->count; i++)
+    ((imbyte*)src->data[0])[i] = ((imbyte*)fixture->data[0])[i] ? 1 : 0;
+
+  imImage* dst = imImageCreate(src->width, src->height, IM_BINARY, IM_BYTE);
+  REQUIRE(dst != NULL);
+
+  SUBCASE("dilate matches everywhere")
+  {
+    REQUIRE(imProcessBinMorphDilate(src, dst, 3, 1) != 0);
+    imImage* want = load_golden("bin_dilate3.pgm");
+    for (int i = 0; i < src->count; i++)
+    {
+      CAPTURE(i);
+      CHECK((int)((imbyte*)dst->data[0])[i] ==
+            (((imbyte*)want->data[0])[i] ? 1 : 0));
+    }
+    imImageDestroy(want);
+  }
+
+  SUBCASE("erode matches away from the border")
+  {
+    /* Thirteen border samples differ, for the same padding reason as the
+       median: an erode has to decide what lies beyond the edge. */
+    REQUIRE(imProcessBinMorphErode(src, dst, 3, 1) != 0);
+    imImage* want = load_golden("bin_erode3.pgm");
+    for (int y = 1; y < src->height - 1; y++)
+    {
+      for (int x = 1; x < src->width - 1; x++)
+      {
+        CAPTURE(x); CAPTURE(y);
+        int i = y*src->width + x;
+        CHECK((int)((imbyte*)dst->data[0])[i] ==
+              (((imbyte*)want->data[0])[i] ? 1 : 0));
+      }
+    }
+    imImageDestroy(want);
+  }
+
+  SUBCASE("and the two are not the same operation")
+  {
+    imImage* eroded = imImageCreate(src->width, src->height, IM_BINARY, IM_BYTE);
+    REQUIRE(imProcessBinMorphErode(src, eroded, 3, 1) != 0);
+    REQUIRE(imProcessBinMorphDilate(src, dst, 3, 1) != 0);
+    CHECK(memcmp(eroded->data[0], dst->data[0], src->count) != 0);
+    imImageDestroy(eroded);
+  }
+
+  imImageDestroy(fixture);
+  imImageDestroy(src);
+  imImageDestroy(dst);
+}
+
+TEST_CASE("golden: RGB to gray matches the Rec601 luma transform")
+{
+  /* imConvertColorSpace applies Rec601 luma. ImageMagick 7 would work in
+     linear light for -colorspace Gray and give a quite different answer, so
+     the reference was made with -grayscale Rec601Luma; the two then agree to
+     within the rounding, which is 1.
+
+     This is the only case here from libim rather than libim_process, and it
+     covers the largest single file still thinly tested. */
+  imImage* src = load_golden("src_rgb.ppm");
+  REQUIRE(imColorModeSpace(src->color_space) == IM_RGB);
+
+  imImage* dst = imImageCreate(src->width, src->height, IM_GRAY, IM_BYTE);
+  REQUIRE(dst != NULL);
+  REQUIRE(imConvertColorSpace(src, dst) == IM_ERR_NONE);
+
+  imImage* want = load_golden("rgb2gray601.pgm");
+  CHECK(worst_difference(dst, want, 0) <= 1);
+
+  /* A conversion that returned one channel, or the unweighted average, would
+     also be "close" on some images -- so pin the weighting where the three
+     channels differ most. */
+  int worst_vs_average = 0;
+  for (int i = 0; i < src->count; i++)
+  {
+    int r = ((imbyte**)src->data)[0][i];
+    int g = ((imbyte**)src->data)[1][i];
+    int b = ((imbyte**)src->data)[2][i];
+    int average = (r + g + b) / 3;
+    int diff = (int)((imbyte*)dst->data[0])[i] - average;
+    if (diff < 0) diff = -diff;
+    if (diff > worst_vs_average) worst_vs_average = diff;
+  }
+  CHECK(worst_vs_average > 20);
 
   imImageDestroy(src);
   imImageDestroy(dst);
