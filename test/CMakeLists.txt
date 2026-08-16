@@ -33,8 +33,18 @@ endif()
 # depend on the host's core count.
 if(TARGET im_process)
     target_sources(im_tests PRIVATE test_process.cpp test_process2.cpp
-                                   test_plus.cpp test_golden.cpp)
+                                   test_plus.cpp test_golden.cpp
+                                   test_transform.cpp)
     target_link_libraries(im_tests PRIVATE im_process)
+endif()
+
+# The Fourier cases in test_transform.cpp need libim_fftw3, which is its own
+# option (IM_BUILD_FFTW3). Everything else in that file is in libim_process
+# and compiles either way, so the cases are guarded by a define rather than
+# the whole file being conditional.
+if(TARGET im_fftw3)
+    target_link_libraries(im_tests PRIVATE im_fftw3)
+    target_compile_definitions(im_tests PRIVATE IM_TEST_HAS_FFTW3)
 endif()
 
 target_include_directories(im_tests
