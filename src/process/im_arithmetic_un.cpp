@@ -279,6 +279,38 @@ static void DoUnaryOpByte(T1 *map, imbyte *new_map, int count, int op)
     for (i = 0; i < count; i++)
       new_map[i] = (imbyte)crop_byte(exp_op((int)map[i]));
     break;
+  /* The four below were missing, so a byte destination wrote no samples at
+     all for them and the caller silently kept whatever it already held. The
+     real-typed overloads of conj_op and cpxnorm_op above make the two complex
+     operations the identity here, as they are for any other real target. */
+  case IM_UN_CONJ:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
+      new_map[i] = (imbyte)crop_byte(conj_op((int)map[i]));
+    break;
+  case IM_UN_CPXNORM:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
+      new_map[i] = (imbyte)crop_byte(cpxnorm_op((int)map[i]));
+    break;
+  case IM_UN_POSITIVES:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
+      new_map[i] = (imbyte)crop_byte(positives_op((int)map[i]));
+    break;
+  case IM_UN_NEGATIVES:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
+      new_map[i] = (imbyte)crop_byte(negatives_op((int)map[i]));
+    break;
   }
 }
 

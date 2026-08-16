@@ -53,6 +53,35 @@ inline T1 div_op(const T1& v1, const T2& v2)
   return v1 / v2;
 }
 
+/* Same hazard as inv_op below, and the same resolution: integer division by
+   zero is undefined, and IM_BIN_DIV reaches it from imProcessArithmeticOp
+   whenever the second image holds a zero sample, and from
+   imProcessArithmeticConstOp whenever the caller passes 0. See the note on
+   inv_op for why 0 is the value chosen.
+
+   Both operands arrive already cast to a common type at every call site, so
+   the matching-type overloads below are enough to cover the integer cases;
+   the template still takes float, double and imComplex. */
+inline imbyte div_op(const imbyte& v1, const imbyte& v2)
+{
+  return v2 == 0? (imbyte)0: (imbyte)(v1/v2);
+}
+
+inline imushort div_op(const imushort& v1, const imushort& v2)
+{
+  return v2 == 0? (imushort)0: (imushort)(v1/v2);
+}
+
+inline short div_op(const short& v1, const short& v2)
+{
+  return v2 == 0? (short)0: (short)(v1/v2);
+}
+
+inline int div_op(const int& v1, const int& v2)
+{
+  return v2 == 0? 0: v1/v2;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 
 /// Generic Invert
@@ -77,8 +106,7 @@ inline T inv_op(const T& v)
    a defined infinity rather than undefined behaviour, and imComplex, which
    divides through its own operators.
 
-   This covers inv_op only. div_op has the same trap for a zero second
-   operand and is deliberately left as it is. */
+   div_op carries the matching overloads for the same reason. */
 inline imbyte inv_op(const imbyte& v)
 {
   return v == 0? (imbyte)0: (imbyte)(1/v);

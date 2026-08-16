@@ -829,6 +829,78 @@ TEST_CASE("binary arithmetic: the integer operations are exact")
   imImageDestroy(dst);
 }
 
+TEST_CASE("binary arithmetic: dividing by a zero sample is defined, not a trap")
+{
+  /* The same hazard as IM_UN_INV, reached from the other side: a zero in the
+     second image is an ordinary black pixel, and integer division by zero is
+     undefined -- SIGFPE on x86, a quiet 0 on ARM. div_op's integer overloads
+     define it as 0.
+     *
+     * As with the IM_UN_INV case, running under -DIM_ENABLE_SANITIZERS=ON is
+     * what makes this bite on every platform rather than only on x86. */
+  const int a[N] = { 10, 3, 7, 0, -5, 8, 2, 9, 100, 1, 6, 4 };
+  const int b[N] = {  0, 1, 0, 0,  2, 0, 3, 0,   7, 0, 2, 0 };
+  const int expected[N] = { 0, 3, 0, 0, -2, 0, 0, 0, 14, 0, 3, 0 };
+
+  imImage* src1 = create(IM_GRAY, IM_INT);
+  imImage* src2 = create(IM_GRAY, IM_INT);
+  imImage* dst  = create(IM_GRAY, IM_INT);
+  set_ints(src1, a);
+  set_ints(src2, b);
+
+  SUBCASE("a zero divisor in the second image")
+  {
+    imProcessArithmeticOp(src1, src2, dst, IM_BIN_DIV);
+    check_ints(dst, expected);
+  }
+  SUBCASE("a zero constant divisor")
+  {
+    const int all_zero[N] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    imProcessArithmeticConstOp(src1, 0.0, dst, IM_BIN_DIV);
+    check_ints(dst, all_zero);
+  }
+  SUBCASE("the byte path is guarded too")
+  {
+    /* Byte sources, not the int ones above: the header requires an integer
+       target to have equal or more precision than the source, and nothing
+       enforces it -- an IM_INT source with an IM_BYTE target writes ints
+       into a byte-sized buffer and walks off the end of the allocation. */
+    const imbyte ba[N] = { 10, 3, 7, 0, 200, 8, 2, 9, 100, 1, 6, 4 };
+    const imbyte bb[N] = {  0, 1, 0, 0,   2, 0, 3, 0,   7, 0, 2, 0 };
+    const imbyte expected_byte[N] = { 0, 3, 0, 0, 100, 0, 0, 0, 14, 0, 3, 0 };
+
+    imImage* byte1 = create(IM_GRAY, IM_BYTE);
+    imImage* byte2 = create(IM_GRAY, IM_BYTE);
+    imImage* byte_dst = create(IM_GRAY, IM_BYTE);
+    set_bytes(byte1, ba);
+    set_bytes(byte2, bb);
+
+    imProcessArithmeticOp(byte1, byte2, byte_dst, IM_BIN_DIV);
+    check_bytes(byte_dst, expected_byte);
+
+    imImageDestroy(byte1); imImageDestroy(byte2); imImageDestroy(byte_dst);
+  }
+  SUBCASE("a real destination still divides to an infinity")
+  {
+    /* Only the integer overloads were guarded; IEEE division is untouched. */
+    imImage* float_dst = create(IM_GRAY, IM_FLOAT);
+    imProcessArithmeticOp(src1, src2, float_dst, IM_BIN_DIV);
+
+    const float* result = floats(float_dst);
+    CHECK(isinf(result[0]));                              /*  10 / 0 */
+    CHECK(result[0] > 0);
+    CHECK(isnan(result[3]));                              /*   0 / 0 */
+    CHECK(result[1] == doctest::Approx(3.0f));            /*   3 / 1 */
+    CHECK(result[4] == doctest::Approx(-2.5f));           /*  -5 / 2 */
+    CHECK(result[8] == doctest::Approx(100.0f/7.0f));
+    imImageDestroy(float_dst);
+  }
+
+  imImageDestroy(src1);
+  imImageDestroy(src2);
+  imImageDestroy(dst);
+}
+
 TEST_CASE("binary arithmetic: integer power uses repeated multiplication")
 {
   /* Integer operands take the ipow overload rather than pow(), so the result
@@ -1373,23 +1445,17 @@ TEST_CASE("unary arithmetic: CONJ and CPXNORM are the identity on real data")
   imImageDestroy(dst);
 }
 
-TEST_CASE("unary arithmetic: a byte destination supports the sign and complex operations"
-          * doctest::should_fail())
+TEST_CASE("unary arithmetic: a byte destination supports the sign and complex operations")
 {
-  /* DoUnaryOpByte (im_arithmetic_un.cpp:205) has cases for ABS, INV, EQL,
-     LESS, SQR, SQRT, LOG, SIN, COS and EXP -- and for nothing else. The four
-     operations added later, IM_UN_CONJ, IM_UN_CPXNORM, IM_UN_POSITIVES and
-     IM_UN_NEGATIVES, fall through its switch, so a byte source with a byte
-     destination writes no samples at all and the caller silently keeps
-     whatever the destination held.
+  /* DoUnaryOpByte used to have cases for ABS, INV, EQL, LESS, SQR, SQRT, LOG,
+     SIN, COS and EXP and nothing else, so CONJ, CPXNORM, POSITIVES and
+     NEGATIVES fell through its switch: a byte source with a byte destination
+     wrote no samples at all and the caller kept whatever was there.
 
-     It is not caught by a freshly created destination, because imImageCreate
-     zeroes it and zero happens to be the right answer for NEGATIVES on
-     unsigned data. The sentinel below is what exposes it.
-
-     Stated here as the assertions that should hold: on unsigned data CONJ,
-     CPXNORM and POSITIVES are all the identity, and NEGATIVES is all zeroes.
-     Delete the should_fail decorator when the four cases are added. */
+     The sentinel below is what exposes it. A freshly created destination does
+     not, because imImageCreate zeroes it and zero is the right answer for
+     NEGATIVES on unsigned data -- so three of these four subcases would have
+     passed against a no-op. */
   const imbyte src_values[N] = { 0, 1, 15, 16, 100, 200, 255, 2, 3, 4, 5, 6 };
   const imbyte zeroes[N] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
@@ -1889,23 +1955,15 @@ TEST_CASE("compose: an image without an alpha channel is declined, not composed"
   imImageDestroy(src1); imImageDestroy(src2); imImageDestroy(dst);
 }
 
-TEST_CASE("compose: an opaque source stays opaque above 8 bits"
-          * doctest::should_fail())
+TEST_CASE("compose: an opaque source stays opaque above 8 bits")
 {
-  /* compose_alpha_op ends with
-
-         return (unsigned char)max;   /  set target as opaque  /
-
-     The cast is hard-coded to a byte even though max comes from imColorMax
-     and is 65535 for IM_USHORT, 32767 for IM_SHORT and 8388607 for IM_INT.
-     Composing an opaque 16-bit source therefore writes an alpha of 255 --
-     not opaque but very nearly transparent -- and the colour planes, which
-     take the correct alpha1 == max branch, look right while the alpha is
-     wrong. The byte case above passes only because (unsigned char)255 is 255.
-
-     Stated here as the assertion that should hold: an opaque source composes
-     to an opaque result whatever the data type. Delete the should_fail
-     decorator when the cast becomes (T). */
+  /* compose_alpha_op used to end with a cast hard-coded to unsigned char,
+     even though max comes from imColorMax and is 65535 for IM_USHORT, 32767
+     for IM_SHORT and 8388607 for IM_INT. Composing an opaque 16-bit source
+     wrote an alpha of 255 -- not opaque but very nearly transparent -- while
+     the colour planes, which take the correct alpha1 == max branch, looked
+     right. The byte case above could never have caught it, because
+     (unsigned char)255 is 255. */
   const int type_max = 65535;
 
   imImage* src1 = imImageCreate(W, H, IM_RGB | IM_ALPHA, IM_USHORT);

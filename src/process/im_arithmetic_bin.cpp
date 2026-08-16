@@ -532,7 +532,7 @@ static inline T compose_alpha_op(const T& alpha1, const T& alpha2, const TA& max
   }                                                                                                                    
   else  /* (alpha1 == max) source has no alpha = opaque */                                                         
   {                                                                                                                    
-    return (unsigned char)max;   /* set target as opaque */                                                   
+    return (T)max;   /* set target as opaque */                                                   
   }                                                                                                                    
 }
 
