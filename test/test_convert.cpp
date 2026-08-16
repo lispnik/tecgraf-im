@@ -7,9 +7,11 @@
  *   src/im_convertopengl.cpp  imConvertPacking, imConvertMapToRGB
  *   src/im_rgb2map.cpp        imConvertRGB2Map
  *
- * Not covered here: imConvertToBitmap (src/im_convertbitmap.cpp), the OpenGL
- * buffer entry points either side of the two packing helpers, and the slow
- * median-cut path in im_rgb2map.cpp that only runs once a palette overflows.
+ * Not covered here: imConvertToBitmap (src/im_convertbitmap.cpp), which
+ * already checks its own preconditions with imImageMatchSize and
+ * imImageIsBitmap; the OpenGL buffer entry points either side of the two
+ * packing helpers; and the slow median-cut path in im_rgb2map.cpp that only
+ * runs once a palette overflows.
  *
  * This layer sits underneath every format driver, so a rounding or clamping
  * mistake here corrupts every load path in the library at once -- and none of
@@ -733,5 +735,88 @@ TEST_CASE("convert: an image with few colours quantizes without loss")
   {
     CAPTURE(i);
     CHECK(map[i] == map[i % 4]);
+  }
+}
+
+TEST_CASE("convert: the palette expansion bounds its decode tables")
+{
+  /* imConvertMapToRGB decodes the palette into three 256-entry tables and
+     then indexes them with the image data, which is a byte. Both ends were
+     unbounded.
+
+     A palette longer than 256 filled past the end of those tables -- a stack
+     overflow reachable from a documented public function, since nothing in
+     im_convert.h states a limit. AddressSanitizer reports it as
+     stack-buffer-overflow in imColorDecode.
+
+     And an index beyond a short palette read whatever the stack held, which
+     is uninitialised rather than out of bounds, so no sanitizer sees it and
+     the output merely differs between runs. */
+  const int count = 16;
+
+  /* NDEBUG only: passing a palette longer than 256 is the documented misuse
+     this guards, so it trips the assert in front of the guard. The other
+     subcase violates nothing and runs in both builds. See the note in
+     test_datatype.cpp. */
+#ifdef NDEBUG
+  SUBCASE("a palette longer than a byte can index is truncated, not written past")
+  {
+    long palette[400];
+    for (int i = 0; i < 400; i++)
+      palette[i] = imColorEncode((imbyte)(i & 0xFF), 0, 0);
+
+    imbyte data[count * 3];
+    memset(data, 0, sizeof(data));
+    for (int i = 0; i < count; i++)
+      data[i] = (imbyte)i;
+
+    imConvertMapToRGB(data, count, 3, 1, palette, 400);
+
+    /* The first 256 entries are still honoured; only the unreachable tail is
+       dropped. */
+    for (int i = 0; i < count; i++)
+    {
+      CAPTURE(i);
+      imbyte r, g, b;
+      imColorDecode(&r, &g, &b, palette[i]);
+      CHECK((int)data[i*3 + 0] == (int)r);
+      CHECK((int)data[i*3 + 1] == (int)g);
+      CHECK((int)data[i*3 + 2] == (int)b);
+    }
+  }
+#endif /* NDEBUG */
+
+  SUBCASE("an index past the end of the palette resolves to a colour")
+  {
+    long palette[4];
+    for (int i = 0; i < 4; i++)
+      palette[i] = imColorEncode((imbyte)(10*i + 1), (imbyte)(20*i + 2), (imbyte)(30*i + 3));
+
+    imbyte data[count * 3];
+    memset(data, 0, sizeof(data));
+    for (int i = 0; i < count; i++)
+      data[i] = (imbyte)(i * 17);          /* runs well past palette_count */
+
+    imConvertMapToRGB(data, count, 3, 1, palette, 4);
+
+    for (int i = 0; i < count; i++)
+    {
+      CAPTURE(i);
+      int index = i * 17;
+      if (index < 4)
+      {
+        imbyte r, g, b;
+        imColorDecode(&r, &g, &b, palette[index]);
+        CHECK((int)data[i*3 + 0] == (int)r);
+      }
+      else
+      {
+        /* Black, rather than whatever the stack happened to hold. The value
+           matters less than it being the same on every run. */
+        CHECK((int)data[i*3 + 0] == 0);
+        CHECK((int)data[i*3 + 1] == 0);
+        CHECK((int)data[i*3 + 2] == 0);
+      }
+    }
   }
 }

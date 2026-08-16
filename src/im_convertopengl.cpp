@@ -204,6 +204,29 @@ void imConvertMapToRGB(unsigned char* data, int count, int depth, int packed, lo
   unsigned char r[256], g[256], b[256];
   unsigned char *r_data, *g_data, *b_data;
 
+  /* The decode tables are indexed by a byte, so they hold 256 entries and no
+     more. palette_count arrives from the caller and was used to fill them
+     without a bound, so a palette longer than 256 wrote past the end of these
+     three arrays -- a stack overflow reachable from a documented public
+     function, since nothing in im_convert.h states a limit. A MAP image
+     cannot have more than 256 entries anyway: imImage carries long[256].
+
+     Zeroed as well, because the data is also indexed by a byte and nothing
+     guarantees every index is below palette_count. An index past the end of a
+     short palette used to read whatever was on the stack, which is
+     uninitialised rather than out of bounds -- so AddressSanitizer does not
+     see it and the output merely varies from run to run. It now resolves to
+     black, which is at least a colour. */
+  assert(palette_count <= 256);
+  if (palette_count > 256)
+    palette_count = 256;
+  if (palette_count < 0)
+    palette_count = 0;
+
+  memset(r, 0, sizeof(r));
+  memset(g, 0, sizeof(g));
+  memset(b, 0, sizeof(b));
+
   unsigned char* src_data = data + count-1;
   if (packed)
   {
