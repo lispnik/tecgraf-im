@@ -669,3 +669,249 @@ TEST_CASE("tone: a negative is the complement, and its own inverse"
   imImageDestroy(src);
   imImageDestroy(dst);
 }
+
+
+/* ================================================================== *
+ * Unchecked preconditions
+ *
+ * Several operations write the destination through a pointer of the source's
+ * type without ever consulting dst_image->data_type, so a destination
+ * narrower than the source ran off the end of its buffer -- four or eight
+ * bytes per sample into a one byte slot. Each header stated the rule and none
+ * of them enforced it, which made a documented misuse a heap overflow rather
+ * than an error.
+ *
+ * Every case below would abort under AddressSanitizer before the guards went
+ * in. They now assert in a debug build and return without writing in a
+ * shipped one, which is the pattern the rest of the library uses for a
+ * precondition a void function cannot report -- and what imProcessCompose has
+ * always done when handed an image with no alpha channel.
+ *
+ * The destination is filled with a sentinel first, so "did nothing" is
+ * distinguishable from "wrote zeroes".
+ *
+ * All three cases are NDEBUG only, per the convention in CLAUDE.md: they
+ * violate a documented precondition on purpose to prove the release guard,
+ * so they trip the assert that sits in front of it, and doctest cannot catch
+ * an abort. The "asserts" job in ci-linux.yml is what covers the other half.
+ * ================================================================== */
+#ifdef NDEBUG
+
+namespace {
+
+const int GW = 8;
+const int GH = 4;
+const int GN = GW * GH;
+
+bool all_sentinel(const imImage* image, imbyte sentinel)
+{
+  for (int i = 0; i < image->count * image->depth; i++)
+    if (((imbyte*)image->data[0])[i] != sentinel)
+      return false;
+  return true;
+}
+
+imImage* sentinel_byte_image(int color_space, imbyte sentinel)
+{
+  imImage* image = imImageCreate(GW, GH, color_space, IM_BYTE);
+  REQUIRE(image != NULL);
+  memset(image->data[0], sentinel, (size_t)image->count * image->depth);
+  return image;
+}
+
+} /* namespace */
+
+TEST_CASE("guards: a destination narrower than the source is refused")
+{
+  imImage* wide = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(wide != NULL);
+  for (int i = 0; i < GN; i++)
+    ((int*)wide->data[0])[i] = i * 1000;
+
+  SUBCASE("imProcessArithmeticOp with an int source and a byte target")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xAB);
+    imProcessArithmeticOp(wide, wide, narrow, IM_BIN_ADD);
+    CHECK(all_sentinel(narrow, 0xAB));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("and with a short target, which is still too narrow")
+  {
+    imImage* narrow = imImageCreate(GW, GH, IM_GRAY, IM_SHORT);
+    REQUIRE(narrow != NULL);
+    short* data = (short*)narrow->data[0];
+    for (int i = 0; i < GN; i++) data[i] = 999;
+
+    imProcessArithmeticOp(wide, wide, narrow, IM_BIN_ADD);
+    for (int i = 0; i < GN; i++)
+    {
+      CAPTURE(i);
+      CHECK(data[i] == 999);
+    }
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("but a wider or equal target still works")
+  {
+    /* The guard has to let through everything the dispatch handles, or it
+       would be a regression dressed as a fix. */
+    imImage* same = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(same != NULL);
+    imProcessArithmeticOp(wide, wide, same, IM_BIN_ADD);
+    for (int i = 0; i < GN; i++)
+    {
+      CAPTURE(i);
+      CHECK(((int*)same->data[0])[i] == i * 2000);
+    }
+    imImageDestroy(same);
+
+    imImage* wider = imImageCreate(GW, GH, IM_GRAY, IM_DOUBLE);
+    REQUIRE(wider != NULL);
+    imProcessArithmeticOp(wide, wide, wider, IM_BIN_ADD);
+    CHECK(((double*)wider->data[0])[3] == doctest::Approx(6000.0));
+    imImageDestroy(wider);
+  }
+
+  SUBCASE("and a double source into a float target, which is named and handled")
+  {
+    /* The reason the guard mirrors the dispatch instead of comparing widths:
+       a width comparison would reject this, and it works. */
+    imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_DOUBLE);
+    imImage* dst = imImageCreate(GW, GH, IM_GRAY, IM_FLOAT);
+    REQUIRE(src != NULL);
+    REQUIRE(dst != NULL);
+    for (int i = 0; i < GN; i++)
+      ((double*)src->data[0])[i] = i * 1.5;
+
+    imProcessArithmeticOp(src, src, dst, IM_BIN_ADD);
+    for (int i = 0; i < GN; i++)
+    {
+      CAPTURE(i);
+      CHECK(((float*)dst->data[0])[i] == doctest::Approx(i * 3.0));
+    }
+    imImageDestroy(src);
+    imImageDestroy(dst);
+  }
+
+  imImageDestroy(wide);
+}
+
+TEST_CASE("guards: the same-type operations refuse a mismatched destination")
+{
+  imImage* wide1 = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  imImage* wide2 = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(wide1 != NULL);
+  REQUIRE(wide2 != NULL);
+  for (int i = 0; i < GN; i++)
+  {
+    ((int*)wide1->data[0])[i] = i * 1000;
+    ((int*)wide2->data[0])[i] = i * 500;
+  }
+
+  SUBCASE("imProcessBlendConst")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xCD);
+    imProcessBlendConst(wide1, wide2, narrow, 0.5);
+    CHECK(all_sentinel(narrow, 0xCD));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("imProcessBackSub")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xCD);
+    imProcessBackSub(wide1, wide2, narrow, 2.0, 0);
+    CHECK(all_sentinel(narrow, 0xCD));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("imProcessMultiplyConj, which assumes complex throughout")
+  {
+    /* This one hardcodes imcfloat for all three images, so a byte target
+       would receive eight bytes per sample. */
+    imImage* cpx = imImageCreate(GW, GH, IM_GRAY, IM_CFLOAT);
+    REQUIRE(cpx != NULL);
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xCD);
+    imProcessMultiplyConj(cpx, cpx, narrow);
+    CHECK(all_sentinel(narrow, 0xCD));
+    imImageDestroy(cpx);
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("imProcessCompose")
+  {
+    imImage* a = imImageCreate(GW, GH, IM_RGB | IM_ALPHA, IM_INT);
+    imImage* b = imImageCreate(GW, GH, IM_RGB | IM_ALPHA, IM_INT);
+    REQUIRE(a != NULL);
+    REQUIRE(b != NULL);
+    imImage* narrow = sentinel_byte_image(IM_RGB | IM_ALPHA, 0xCD);
+
+    imProcessCompose(a, b, narrow);
+    CHECK(all_sentinel(narrow, 0xCD));
+
+    imImageDestroy(a); imImageDestroy(b); imImageDestroy(narrow);
+  }
+
+  SUBCASE("but matching types still work")
+  {
+    imImage* same = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(same != NULL);
+    imProcessBlendConst(wide1, wide2, same, 1.0);
+    for (int i = 0; i < GN; i++)
+    {
+      CAPTURE(i);
+      CHECK(((int*)same->data[0])[i] == i * 1000);   /* alpha 1 is source one */
+    }
+    imImageDestroy(same);
+  }
+
+  imImageDestroy(wide1);
+  imImageDestroy(wide2);
+}
+
+TEST_CASE("guards: normalizing components requires a real destination")
+{
+  imImage* src = imImageCreate(GW, GH, IM_RGB, IM_BYTE);
+  REQUIRE(src != NULL);
+  for (int p = 0; p < 3; p++)
+    for (int i = 0; i < GN; i++)
+      ((imbyte**)src->data)[p][i] = (imbyte)(i + p * 10 + 1);
+
+  SUBCASE("a byte destination would have taken eight bytes a sample")
+  {
+    imImage* narrow = sentinel_byte_image(IM_RGB, 0xEF);
+    imProcessNormalizeComponents(src, narrow);
+    CHECK(all_sentinel(narrow, 0xEF));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("float and double destinations both work")
+  {
+    imImage* as_float = imImageCreate(GW, GH, IM_RGB, IM_FLOAT);
+    REQUIRE(as_float != NULL);
+    imProcessNormalizeComponents(src, as_float);
+
+    /* Each pixel's components sum to one by construction. */
+    for (int i = 0; i < GN; i++)
+    {
+      CAPTURE(i);
+      double sum = 0;
+      for (int p = 0; p < 3; p++)
+        sum += ((float**)as_float->data)[p][i];
+      CHECK(sum == doctest::Approx(1.0));
+    }
+    imImageDestroy(as_float);
+
+    imImage* as_double = imImageCreate(GW, GH, IM_RGB, IM_DOUBLE);
+    REQUIRE(as_double != NULL);
+    imProcessNormalizeComponents(src, as_double);
+    double sum = 0;
+    for (int p = 0; p < 3; p++)
+      sum += ((double**)as_double->data)[p][0];
+    CHECK(sum == doctest::Approx(1.0));
+    imImageDestroy(as_double);
+  }
+
+  imImageDestroy(src);
+}
+#endif /* NDEBUG */

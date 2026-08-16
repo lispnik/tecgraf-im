@@ -17,7 +17,23 @@
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
+
+/* Several operations below write the destination through a pointer of the
+   SOURCE's type and never look at dst_image->data_type at all, so the images
+   have to match: a narrower destination overruns its buffer, four or eight
+   bytes per sample into a one byte slot. Each of their headers says "images
+   must match"; none of them enforced it.
+
+   The guards are an assert plus a real early return, which is the pattern the
+   rest of this library uses for a precondition it cannot report -- these
+   functions return void -- and matches imProcessCompose, which has always
+   returned early when an image lacked the alpha channel it needs. */
+static int iSameDataType(const imImage* a, const imImage* b)
+{
+  return a->data_type == b->data_type;
+}
 
 template <class T>
 static inline T backsub_op(const T& v1, const T& v2, const double& tol, int use_diff)
@@ -44,6 +60,10 @@ static void DoBackSub(T *map1, T *map2, T *map, int count, double tol, int diff)
 
 void imProcessBackSub(const imImage* src_image1, imImage* src_image2, imImage* dst_image, double tol, int diff)
 {
+  assert(iSameDataType(src_image1, dst_image));
+  if (!iSameDataType(src_image1, dst_image))
+    return;
+
   int count = src_image1->count;
 
   for (int i = 0; i < src_image1->depth; i++)
@@ -272,9 +292,53 @@ static void DoBinaryOpCpxReal(imComplex<T> *map1, T *map2, imComplex<T> *map, in
   }
 }
 
+/* The dispatch below writes the destination through a pointer of the
+   destination's own type for the combinations it names, and through a pointer
+   of the SOURCE's type for everything that falls to the final else. A
+   destination narrower than the source therefore runs off the end of its
+   buffer -- an IM_INT source into an IM_BYTE target writes four bytes per
+   sample into a one byte slot.
+
+   im_process_pnt.h states the rule from the caller's side, "if target is
+   integer then it must have equal or more precision than the source", but
+   nothing enforced it. This mirrors the dispatch exactly rather than
+   comparing widths, because a width comparison would reject IM_DOUBLE to
+   IM_FLOAT, which is named and handled.
+
+   Kept next to the function it describes: imProcessArithmeticConstOp has its
+   own, wider, set of explicit branches and needs no such guard. */
+static int iArithmeticDstFits(int src_type, int dst_type)
+{
+  if (src_type == dst_type)
+    return 1;
+
+  switch (src_type)
+  {
+  case IM_BYTE:            /* every target has an explicit branch */
+    return 1;
+  case IM_SHORT:
+  case IM_USHORT:
+    return dst_type == IM_SHORT || dst_type == IM_USHORT ||
+           dst_type == IM_INT   || dst_type == IM_FLOAT  ||
+           dst_type == IM_DOUBLE;
+  case IM_INT:
+    return dst_type == IM_FLOAT || dst_type == IM_DOUBLE;
+  case IM_FLOAT:
+    return dst_type == IM_DOUBLE;
+  case IM_DOUBLE:
+    return dst_type == IM_FLOAT;
+  default:                 /* complex writes complex, and only its own width */
+    return 0;
+  }
+}
+
 void imProcessArithmeticOp(const imImage* src_image1, const imImage* src_image2, imImage* dst_image, int op)
 {
   int count = src_image1->count*src_image1->depth;  /* do NOT include alpha here */
+
+  assert(iArithmeticDstFits(src_image1->data_type, dst_image->data_type));
+  if (!iArithmeticDstFits(src_image1->data_type, dst_image->data_type))
+    return;
 
   switch(src_image1->data_type)
   {
@@ -375,6 +439,10 @@ static void DoBlendConst(T *map1, T *map2, T *map, int count, double alpha)
 
 void imProcessBlendConst(const imImage* src_image1, const imImage* src_image2, imImage* dst_image, double alpha)
 {
+  assert(iSameDataType(src_image1, dst_image));
+  if (!iSameDataType(src_image1, dst_image))
+    return;
+
   int count = src_image1->count*src_image1->depth;
 
   switch(src_image1->data_type)
@@ -421,6 +489,10 @@ static void DoBlend(T *map1, T *map2, TA *alpha, T *map, int count, int alpha_co
 
 void imProcessBlend(const imImage* src_image1, const imImage* src_image2, const imImage* alpha, imImage* dst_image)
 {
+  assert(iSameDataType(src_image1, dst_image));
+  if (!iSameDataType(src_image1, dst_image))
+    return;
+
   int count = src_image1->count*src_image1->depth;
   double type_max = (double)imColorMax(src_image1->data_type);
 
@@ -558,6 +630,10 @@ static void DoComposeAlpha(T *alpha1, T *alpha2, T *dst_alpha, int count, TA max
 
 void imProcessCompose(const imImage* src_image1, const imImage* src_image2, imImage* dst_image)
 {
+  assert(iSameDataType(src_image1, dst_image));
+  if (!iSameDataType(src_image1, dst_image))
+    return;
+
   int count = src_image1->count, 
       src_alpha = src_image1->depth;
   int type_max = (int)imColorMax(src_image1->data_type);
@@ -1104,6 +1180,10 @@ int imProcessAutoCovariance(const imImage* src_image, const imImage* mean_image,
 
 void imProcessMultiplyConj(const imImage* src_image1, const imImage* src_image2, imImage* dst_image)
 {
+  assert(iSameDataType(src_image1, dst_image));
+  if (!iSameDataType(src_image1, dst_image))
+    return;
+
   int total_count = src_image1->count*src_image1->depth;
 
   imcfloat* map = (imcfloat*)dst_image->data[0];

@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 
 template <class T>
@@ -277,6 +278,14 @@ static void DoNormalizeComp(ST** src_data, DT** dst_data, int count, int depth)
 
 void imProcessNormalizeComponents(const imImage* src_image, imImage* dst_image)
 {
+  /* The dispatch below treats anything that is not IM_FLOAT as IM_DOUBLE, so
+     a byte target receives eight bytes per sample and runs a long way off the
+     end of its buffer. im_process_pnt.h says "target must be IM_FLOAT or
+     IM_DOUBLE"; nothing enforced it. */
+  assert(dst_image->data_type == IM_FLOAT || dst_image->data_type == IM_DOUBLE);
+  if (dst_image->data_type != IM_FLOAT && dst_image->data_type != IM_DOUBLE)
+    return;
+
   switch(src_image->data_type)
   {
   case IM_BYTE:
