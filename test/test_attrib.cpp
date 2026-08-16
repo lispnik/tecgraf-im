@@ -394,6 +394,10 @@ TEST_CASE("imAttribArray: out-of-range indices are rejected, not dereferenced")
     CHECK(array.Get(100000) == NULL);
   }
 
+  /* NDEBUG only, unlike the Get subcases above: imAttribArraySet asserts on
+     the index before its runtime guard, so this trips it in a build with
+     asserts live. See the note in test_datatype.cpp. */
+#ifdef NDEBUG
   SUBCASE("Set outside the array is a no-op, not a stray write")
   {
     const int other = 9;
@@ -407,6 +411,7 @@ TEST_CASE("imAttribArray: out-of-range indices are rejected, not dereferenced")
     CHECK(*slot0 == 7);
     CHECK(array.Get(1) == NULL);
   }
+#endif /* NDEBUG */
 }
 
 TEST_CASE("imAttribArray: long names are truncated to IM_ATTRIB_MAXNAME")

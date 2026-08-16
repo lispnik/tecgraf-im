@@ -41,6 +41,13 @@ TEST_CASE("imDataType accessors report the documented values")
   CHECK(imDataTypeIntMin(IM_SHORT) == -32768);
 }
 
+/* Compiled only when NDEBUG is set, i.e. for the builds that ship. The case
+   deliberately violates the documented precondition to prove the guard behind
+   it, so the matching assert() fires -- correctly -- in a build with asserts
+   live, and doctest cannot catch an abort. ci-linux.yml has a job that builds
+   with asserts on precisely so they are not dead code; this case is one of
+   the few that has to sit it out. */
+#ifdef NDEBUG
 TEST_CASE("imDataType accessors reject out-of-range types instead of indexing")
 {
   /* Regression: each accessor asserted and then indexed iTypeInfoTable
@@ -66,6 +73,7 @@ TEST_CASE("imDataType accessors reject out-of-range types instead of indexing")
     CHECK(strlen(name) > 0);
   }
 }
+#endif /* NDEBUG */
 
 /* ------------------------------------------------------------------ *
  * RAW attribute validation

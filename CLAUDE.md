@@ -47,7 +47,17 @@ ctest -LE known-bug                            # skip the known-bug probes
 
 `-DBUILD_TESTING=OFF` drops the whole suite for consumers who only want the libraries.
 
-Three conventions matter when adding tests:
+Four conventions matter when adding tests:
+
+- **A case that deliberately violates a documented precondition goes behind
+  `#ifdef NDEBUG`.** The library's pattern is `assert(precondition)` followed by a
+  real runtime guard, so the shipped builds cope and a debug build fails loudly at
+  the point of the mistake. A case proving the *guard* therefore trips the assert
+  when one is compiled in, and doctest cannot catch an abort. The `asserts` job in
+  `ci-linux.yml` builds `Debug` specifically so the asserts are not dead code —
+  without it, an assert whose condition disagreed with the guard beside it would
+  never be noticed. Four regions are currently excluded this way; each says so and
+  points at the note in `test_datatype.cpp`.
 
 - **A bug you are not fixing yet gets a correct assertion, inverted.** Decorate the case
   `* doctest::should_fail()`: it states the behaviour that *should* hold, doctest reports

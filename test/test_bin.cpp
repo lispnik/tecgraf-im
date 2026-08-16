@@ -171,6 +171,11 @@ TEST_CASE("a negative count touches nothing")
   }
 }
 
+/* NDEBUG only: passing NULL violates the documented precondition, so the
+   assert(data) guarding it fires in a build with asserts live. That is the
+   assert doing its job -- the point of the case is the release behaviour
+   behind it. See the note in test_datatype.cpp. */
+#ifdef NDEBUG
 TEST_CASE("NULL data is rejected rather than dereferenced")
 {
   /* Regression: assert(data) was the only guard, and every shipped build
@@ -182,6 +187,7 @@ TEST_CASE("NULL data is rejected rather than dereferenced")
   imBinSwapBytes8(NULL, 4);
   CHECK(true);                              /* reaching here is the assertion */
 }
+#endif /* NDEBUG */
 
 TEST_CASE("imBinSwapBytes dispatches on element size")
 {
@@ -280,6 +286,9 @@ TEST_CASE("IM_CFLOAT must be swapped as two 4-byte reals, not one 8-byte value")
   }
 }
 
+/* NDEBUG only: an unsupported size trips the assert(0 && "...") in the
+   default arm of imBinSwapBytes. See the note in test_datatype.cpp. */
+#ifdef NDEBUG
 TEST_CASE("an unsupported element size leaves the data alone")
 {
   /* Sizes that are not a scalar width cannot be swapped meaningfully. The
@@ -296,6 +305,7 @@ TEST_CASE("an unsupported element size leaves the data alone")
     CHECK(buf.guards_intact());
   }
 }
+#endif /* NDEBUG */
 
 /* ------------------------------------------------------------------ *
  * Integration: the swap functions in their real setting.

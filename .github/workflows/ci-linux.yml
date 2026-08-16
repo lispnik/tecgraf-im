@@ -111,3 +111,49 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+
+  # Every other job builds Release or RelWithDebInfo, which define NDEBUG and
+  # compile out every assert() in the library. That left the asserts as dead
+  # code: an assert whose condition disagreed with the runtime guard beside it
+  # would never be noticed, and a developer building Debug locally would meet
+  # the difference with no warning. This job compiles them.
+  #
+  # The handful of cases that deliberately violate a documented precondition,
+  # to prove the release guard behind it, are #ifdef NDEBUG in the test
+  # sources -- they would trip the very assert they are testing around. They
+  # are named in the comment on each.
+  asserts:
+    name: Asserts enabled (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libtiff-dev libjpeg-dev libpng-dev \
+            libexif-dev liblzf-dev liblz4-dev \
+            libfftw3-dev libomp-dev \
+            liblua5.4-dev lua5.4 \
+            libheif-dev \
+            libheif-plugin-libde265 libheif-plugin-x265 \
+            libheif-plugin-aomdec libheif-plugin-aomenc
+
+      - name: Configure
+        # Debug rather than -UNDEBUG on top of Release: the point is the
+        # configuration a developer actually gets from -DCMAKE_BUILD_TYPE=Debug.
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DIM_BUILD_JP2=OFF \
+            -DIM_BUILD_HEIF=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure
