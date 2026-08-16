@@ -326,7 +326,13 @@ int imFileFormatPCX::ReadImageInfo(int index)
   {
     this->file_color_mode = IM_RGB;
     this->file_color_mode |= IM_PACKED;
-    this->line_buffer_extra += 3*this->width; // room for 24 bpp packing
+    /* Sized from line_raw_size, not from 3*width. The scratch area is written
+       with 3*width bytes by Pack24bpp but copied back with line_raw_size,
+       which is bplp*3 where bplp is the file's line width padded to an even
+       number -- so on any odd width the copy read past the end of the
+       allocation. A 37 pixel line allocates 224 bytes and the copy wants 227.
+       line_raw_size is never smaller than 3*width, so this covers both uses. */
+    this->line_buffer_extra += this->line_raw_size; // room for 24 bpp packing
   }
   else
   {
@@ -565,7 +571,12 @@ void imFileFormatPCX::Expand4bpp()
     }
   }
 
-  memcpy(this->line_buffer, in_data + this->line_buffer_size+2, this->width);
+  /* memmove, not memcpy: source and destination are both inside the one line
+     buffer, separated by line_buffer_size+2, so they overlap whenever the
+     amount copied exceeds that gap. AddressSanitizer reports it as
+     memcpy-param-overlap, which is undefined behaviour even when the bytes
+     happen to come out right for a forward copy. */
+  memmove(this->line_buffer, in_data + this->line_buffer_size+2, this->width);
 }
 
 void imFileFormatPCX::Pack24bpp()
@@ -586,7 +597,7 @@ void imFileFormatPCX::Pack24bpp()
     *out_data++ = *blue++;
   }
 
-  memcpy(in_data, in_data + this->line_buffer_size+2, this->line_raw_size);
+  memmove(in_data, in_data + this->line_buffer_size+2, this->line_raw_size);
 }
 
 void imFileFormatPCX::Unpack24bpp()
@@ -607,7 +618,7 @@ void imFileFormatPCX::Unpack24bpp()
     *blue++ = *in_data++;
   }
 
-  memcpy(out_data - (this->line_buffer_size+2), out_data, this->line_raw_size);
+  memmove(out_data - (this->line_buffer_size+2), out_data, this->line_raw_size);
 }
 
 int imFileFormatPCX::ReadImageData(void* data)

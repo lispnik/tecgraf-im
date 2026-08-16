@@ -683,3 +683,100 @@ TEST_CASE("format: a truncated file is refused, not half-decoded")
   else
     CHECK(error != IM_ERR_NONE);
 }
+
+TEST_CASE("ICO and PCX: lossless for the colour spaces they accept")
+{
+  /* The two remaining format drivers, both around 6% covered and both
+     lossless -- PCX by run-length coding, ICO by storing the samples raw --
+     so these are exact comparisons like PNG's rather than tolerances. Each
+     accepts RGB, gray and indexed at IM_BYTE and nothing else. */
+  struct Case { const char* format; const char* file; int color_space; };
+  const Case cases[] = {
+    { "ICO", "rt_rgb.ico",  IM_RGB  },
+    { "ICO", "rt_gray.ico", IM_GRAY },
+    { "PCX", "rt_rgb.pcx",  IM_RGB  },
+    { "PCX", "rt_gray.pcx", IM_GRAY },
+  };
+
+  for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++)
+  {
+    CAPTURE(cases[c].file);
+
+    imImage* src = imImageCreate(W, H, cases[c].color_space, IM_BYTE);
+    REQUIRE(src != NULL);
+    fill_pattern(src);
+
+    int error = IM_ERR_NONE;
+    const char* stage = "";
+    imImage* loaded = round_trip(src, cases[c].format, cases[c].file, &error, &stage);
+
+    if (!loaded && unwritable(cases[c].format, src, error))
+    {
+      imImageDestroy(src);
+      continue;
+    }
+    REQUIRE_MESSAGE(loaded != NULL,
+                    "failed at " << std::string(stage) << ", error " << error);
+
+    CHECK(loaded->width == W);
+    CHECK(loaded->height == H);
+    CHECK(loaded->data_type == IM_BYTE);
+
+    /* Both store gray through a palette, as GIF does, so compare the
+       intensity a sample resolves to rather than the raw byte. */
+    if (imColorModeSpace(loaded->color_space) == IM_MAP &&
+        imColorModeSpace(cases[c].color_space) == IM_GRAY)
+    {
+      const imbyte* src_data = (const imbyte*)src->data[0];
+      const imbyte* dst_data = (const imbyte*)loaded->data[0];
+      for (int i = 0; i < N; i++)
+      {
+        CAPTURE(i);
+        REQUIRE(dst_data[i] < loaded->palette_count);
+        imbyte r, g, b;
+        imColorDecode(&r, &g, &b, loaded->palette[dst_data[i]]);
+        CHECK((int)r == (int)src_data[i]);
+      }
+    }
+    else
+    {
+      CHECK(imColorModeSpace(loaded->color_space) ==
+            imColorModeSpace(cases[c].color_space));
+      CHECK(max_difference(src, loaded) == 0);
+    }
+
+    imImageDestroy(src);
+    imImageDestroy(loaded);
+  }
+}
+
+TEST_CASE("PCX: an indexed image keeps its palette")
+{
+  imImage* src = imImageCreate(W, H, IM_MAP, IM_BYTE);
+  REQUIRE(src != NULL);
+  fill_map(src, 16);
+
+  int error = IM_ERR_NONE;
+  const char* stage = "";
+  imImage* loaded = round_trip(src, "PCX", "rt_map.pcx", &error, &stage);
+
+  if (!loaded && unwritable("PCX", src, error))
+  {
+    imImageDestroy(src);
+    return;
+  }
+  REQUIRE_MESSAGE(loaded != NULL,
+                  "failed at " << std::string(stage) << ", error " << error);
+
+  const imbyte* src_idx = (const imbyte*)src->data[0];
+  const imbyte* dst_idx = (const imbyte*)loaded->data[0];
+  for (int i = 0; i < N; i++)
+  {
+    CAPTURE(i);
+    REQUIRE(dst_idx[i] < loaded->palette_count);
+    CHECK(loaded->palette[dst_idx[i]] == src->palette[src_idx[i]]);
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(loaded);
+}

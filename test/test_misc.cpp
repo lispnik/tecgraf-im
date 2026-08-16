@@ -459,3 +459,231 @@ TEST_CASE("old: RGB to map and back preserves a small palette exactly")
     CHECK((int)bb[i] == (int)blue[i]);
   }
 }
+
+
+/* ================================================================== *
+ * The pre-3.0 file API -- src/im_old.cpp and src/im_oldresize.c
+ *
+ * Still exported, still in im_old.h, and at 1.8% and 0% covered. It takes
+ * separate R, G and B buffers and an integer format code rather than an
+ * imImage, and it is the layer most likely to have rotted quietly: nothing
+ * inside the library calls it, so only an external consumer would ever have
+ * noticed.
+ * ================================================================== */
+
+TEST_CASE("old: an RGB image saves, identifies and loads back")
+{
+  const int w = 12, h = 8, n = w * h;
+  unsigned char red[96], green[96], blue[96];
+  unsigned char br[96], bg[96], bb[96];
+
+  for (int i = 0; i < n; i++)
+  {
+    red[i]   = (unsigned char)((i * 7) & 0xFF);
+    green[i] = (unsigned char)((i * 11 + 30) & 0xFF);
+    blue[i]  = (unsigned char)((i * 13 + 60) & 0xFF);
+  }
+
+  std::string path = scratch("old_rgb.tga");
+
+  /* IM_TGA is lossless and takes RGB directly, so the round trip is exact.
+     The format code is the old enum, not a string. */
+  REQUIRE(imSaveRGB(w, h, IM_TGA, red, green, blue, (char*)path.c_str()) == IM_ERR_NONE);
+
+  SUBCASE("imFileFormat reports the format it was written as")
+  {
+    int format = -1;
+    REQUIRE(imFileFormat((char*)path.c_str(), &format) == IM_ERR_NONE);
+    CHECK(format == IM_TGA);
+  }
+
+  SUBCASE("and does so for every format the old API can write")
+  {
+    /* Checked across the whole table rather than one entry, because the
+       mapping used to be wrong for all of them: every comparison in
+       FormatNew2Old was negated, so a BMP came back as IM_GIF and everything
+       else as IM_BMP. A single-format case would have caught it, but only by
+       luck -- the one value that was accidentally right was IM_BMP, and any
+       test that happened to pick BMP would have passed. */
+    struct Case { int code; const char* ext; };
+    const Case cases[] = {
+      { IM_BMP, "bmp" }, { IM_PCX, "pcx" }, { IM_TIF, "tif" },
+      { IM_RAS, "ras" }, { IM_SGI, "sgi" }, { IM_LED, "led" },
+      { IM_TGA, "tga" },
+    };
+
+    for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++)
+    {
+      CAPTURE(cases[c].ext);
+      std::string p = scratch((std::string("old_fmt.") + cases[c].ext).c_str());
+
+      int err = imSaveRGB(w, h, cases[c].code, red, green, blue, (char*)p.c_str());
+      if (err != IM_ERR_NONE)
+      {
+        MESSAGE("skipping " << cases[c].ext << ": save error " << err);
+        continue;
+      }
+
+      int format = -1;
+      REQUIRE(imFileFormat((char*)p.c_str(), &format) == IM_ERR_NONE);
+
+      /* The high byte carries the compression flag, so compare the format
+         itself rather than the whole word. */
+      CHECK((format & 0x00FF) == cases[c].code);
+    }
+  }
+
+  SUBCASE("imImageInfo reports the geometry")
+  {
+    int iw = 0, ih = 0, type = -1, palette_count = -1;
+    REQUIRE(imImageInfo((char*)path.c_str(), &iw, &ih, &type, &palette_count) == IM_ERR_NONE);
+    CHECK(iw == w);
+    CHECK(ih == h);
+  }
+
+  SUBCASE("imLoadRGB returns the samples unchanged")
+  {
+    REQUIRE(imLoadRGB((char*)path.c_str(), br, bg, bb) == IM_ERR_NONE);
+    for (int i = 0; i < n; i++)
+    {
+      CAPTURE(i);
+      CHECK((int)br[i] == (int)red[i]);
+      CHECK((int)bg[i] == (int)green[i]);
+      CHECK((int)bb[i] == (int)blue[i]);
+    }
+  }
+}
+
+TEST_CASE("old: an indexed image saves and loads back through its palette")
+{
+  const int w = 12, h = 8, n = w * h;
+  unsigned char map[96], back[96];
+  long palette[256], back_palette[256];
+
+  for (int i = 0; i < 8; i++)
+    palette[i] = imColorEncode((unsigned char)(i * 30 + 5),
+                               (unsigned char)(255 - i * 20),
+                               (unsigned char)(i * 11));
+  for (int i = 0; i < n; i++)
+    map[i] = (unsigned char)(i % 8);
+
+  std::string path = scratch("old_map.bmp");
+  REQUIRE(imSaveMap(w, h, IM_BMP, map, 8, palette, (char*)path.c_str()) == IM_ERR_NONE);
+
+  REQUIRE(imLoadMap((char*)path.c_str(), back, back_palette) == IM_ERR_NONE);
+
+  /* Indices may be renumbered by the writer, so compare the colours they
+     resolve to rather than the raw index. */
+  for (int i = 0; i < n; i++)
+  {
+    CAPTURE(i);
+    CHECK(back_palette[back[i]] == palette[map[i]]);
+  }
+}
+
+TEST_CASE("old: a missing file is reported rather than crashing")
+{
+  int format = -1;
+  CHECK(imFileFormat((char*)scratch("old_absent.bmp").c_str(), &format) != IM_ERR_NONE);
+
+  int w = 0, h = 0, type = 0, pc = 0;
+  CHECK(imImageInfo((char*)scratch("old_absent.bmp").c_str(), &w, &h, &type, &pc) != IM_ERR_NONE);
+}
+
+TEST_CASE("old: RGB to gray uses a gray palette")
+{
+  const int w = 4, h = 2, n = w * h;
+  unsigned char red[8]   = { 255,   0,   0, 255, 0, 128, 64, 200 };
+  unsigned char green[8] = {   0, 255,   0, 255, 0, 128, 64, 200 };
+  unsigned char blue[8]  = {   0,   0, 255, 255, 0, 128, 64, 200 };
+  unsigned char gray_map[8];
+  long grays[256];
+
+  imRGB2Gray(w, h, red, green, blue, gray_map, grays);
+
+  /* The result is indexed, and the palette it points into has to be gray --
+     equal components -- or the "gray" in the name means nothing. */
+  for (int i = 0; i < n; i++)
+  {
+    CAPTURE(i);
+    unsigned char r, g, b;
+    imColorDecode(&r, &g, &b, grays[gray_map[i]]);
+    CHECK((int)r == (int)g);
+    CHECK((int)g == (int)b);
+  }
+
+  /* And white has to come out brighter than black, whatever the weighting. */
+  unsigned char rw, gw, bw, rb, gb, bb2;
+  imColorDecode(&rw, &gw, &bw, grays[gray_map[3]]);   /* white  */
+  imColorDecode(&rb, &gb, &bb2, grays[gray_map[4]]);  /* black  */
+  CHECK((int)rw > (int)rb);
+}
+
+TEST_CASE("old: the legacy resize keeps the corners and the size")
+{
+  /* imResize and imStretch predate imProcessResize and work on a raw byte
+     buffer. Both are nearest-neighbour-ish, so the corners are the property
+     that has to hold whatever the sampling convention: a corner of the
+     destination comes from a corner of the source. */
+  const int sw = 8, sh = 6;
+  unsigned char src[48];
+  for (int y = 0; y < sh; y++)
+    for (int x = 0; x < sw; x++)
+      src[y*sw + x] = (unsigned char)(x * 10 + y * 3 + 1);
+
+  SUBCASE("enlarging")
+  {
+    const int dw = 16, dh = 12;
+    unsigned char dst[192];
+    memset(dst, 0xEE, sizeof(dst));
+
+    imResize(sw, sh, src, dw, dh, dst);
+
+    CHECK((int)dst[0] == (int)src[0]);
+    CHECK((int)dst[dw - 1] == (int)src[sw - 1]);
+    CHECK((int)dst[(dh - 1)*dw] == (int)src[(sh - 1)*sw]);
+
+    /* Every sample was written -- the sentinel must be gone. */
+    int untouched = 0;
+    for (int i = 0; i < dw*dh; i++)
+      if (dst[i] == 0xEE) untouched++;
+    CHECK(untouched == 0);
+  }
+
+  SUBCASE("reducing")
+  {
+    const int dw = 4, dh = 3;
+    unsigned char dst[12];
+    memset(dst, 0xEE, sizeof(dst));
+
+    imResize(sw, sh, src, dw, dh, dst);
+
+    CHECK((int)dst[0] == (int)src[0]);
+    int untouched = 0;
+    for (int i = 0; i < dw*dh; i++)
+      if (dst[i] == 0xEE) untouched++;
+    CHECK(untouched == 0);
+  }
+
+  SUBCASE("imStretch fills its target too")
+  {
+    const int dw = 10, dh = 10;
+    unsigned char dst[100];
+    memset(dst, 0xEE, sizeof(dst));
+
+    imStretch(sw, sh, src, dw, dh, dst);
+
+    int untouched = 0;
+    for (int i = 0; i < dw*dh; i++)
+      if (dst[i] == 0xEE) untouched++;
+    CHECK(untouched == 0);
+  }
+
+  SUBCASE("the same size is a copy")
+  {
+    unsigned char dst[48];
+    memset(dst, 0xEE, sizeof(dst));
+    imResize(sw, sh, src, sw, sh, dst);
+    CHECK(memcmp(dst, src, sizeof(src)) == 0);
+  }
+}

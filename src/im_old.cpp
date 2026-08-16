@@ -27,23 +27,30 @@ static int FormatNew2Old(const char* new_format, const char* compression)
 {
   int format;
 
-  if (!imStrEqual(new_format, "BMP"))
+  /* imStrEqual is a boolean "are these equal", not a strcmp -- it returns 1
+     for equal and 0 for different. Every test here was negated, so each
+     branch fired when the name did NOT match: a BMP came back as IM_GIF and
+     everything else as IM_BMP, which is what imFileFormat reported for every
+     format in the library. The compression test at the end is the one place
+     the negation was wanted, and getting that one right is probably what made
+     the rest look plausible. */
+  if (imStrEqual(new_format, "BMP"))
     format = IM_BMP;
-  else if (!imStrEqual(new_format, "GIF"))
+  else if (imStrEqual(new_format, "GIF"))
     format = IM_GIF;
-  else if (!imStrEqual(new_format, "PCX"))
+  else if (imStrEqual(new_format, "PCX"))
     format = IM_PCX;
-  else if (!imStrEqual(new_format, "RAS"))
+  else if (imStrEqual(new_format, "RAS"))
     format = IM_RAS;
-  else if (!imStrEqual(new_format, "SGI"))
+  else if (imStrEqual(new_format, "SGI"))
     format = IM_SGI;
-  else if (!imStrEqual(new_format, "JPEG"))
+  else if (imStrEqual(new_format, "JPEG"))
     format = IM_JPG;
-  else if (!imStrEqual(new_format, "LED"))
+  else if (imStrEqual(new_format, "LED"))
     format = IM_LED;
-  else if (!imStrEqual(new_format, "TIFF"))
+  else if (imStrEqual(new_format, "TIFF"))
     format = IM_TIF;
-  else if (!imStrEqual(new_format, "TGA"))
+  else if (imStrEqual(new_format, "TGA"))
     format = IM_TGA;
   else
     return -1;
@@ -56,7 +63,11 @@ static int FormatNew2Old(const char* new_format, const char* compression)
 
 int imFileFormat(char *filename, int* format)
 {
-  char new_format[10], compression[10];
+  /* Sized from imFile::compression, which holds 15 characters and a
+     terminator -- "ADOBEDEFLATE" alone is 12. imFileGetInfo strcpy's into
+     these, so a buffer that merely matched the old field width would
+     overflow the moment a TIFF used one of the longer names. */
+  char new_format[32], compression[32];
   int error, image_count;
   
   imFile* ifile = imFileOpen(filename, &error);
