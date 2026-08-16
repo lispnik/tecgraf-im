@@ -120,20 +120,63 @@ imImage* round_trip(imImage* source, const char* format, const char* file,
 
 /* libheif loads its codecs as plugins, and distributions package them
    separately -- Ubuntu splits them into libheif-plugin-*, vcpkg makes them
-   opt-in features. A build can therefore have HEVC but not AV1. The driver
-   reports that as IM_ERR_COMPRESS from WriteImageInfo, and as the same code
-   from a decode of an unsupported codec.
+   opt-in features. A build can therefore have HEVC but not AV1. Treating that
+   as a failure would mean demanding every CI platform ship every codec, so
+   skip the individual codec instead.
 
-   Treating that as a test failure would mean demanding every CI platform ship
-   every codec, so skip the individual codec instead. The final case in this
-   file guards against the degenerate outcome where nothing is available and
-   every case skips. */
-bool codec_unavailable(int error, const char* format)
+   A missing codec surfaces as IM_ERR_COMPRESS -- but so do genuine defects,
+   because the driver returns that code whenever libheif reports an unsupported
+   feature and from every encoder-setup failure besides. Deciding to skip from
+   the error code alone would therefore turn a regression in the chroma, alpha
+   or quality paths into a silently green test.
+
+   So ask the question directly rather than inferring it. Encode the simplest
+   thing this driver can produce, 8 bit gray with Lossless: if that round-trips
+   the codec is present, and every other failure in this format is this
+   driver's own. Call this only after a case has already failed -- a case that
+   passed has proved the codec exists by itself.
+
+   The final case in this file guards against the degenerate outcome where
+   nothing is available and every case skips. */
+bool codec_unavailable(const char* format, const char* file)
 {
-  if (error != IM_ERR_COMPRESS)
+  enum { UNKNOWN, PRESENT, MISSING };
+  static int state[2] = { UNKNOWN, UNKNOWN };
+  static int probe_error[2] = { IM_ERR_NONE, IM_ERR_NONE };
+
+  /* Two drivers, so two slots. The cache only earns its keep when the whole
+     binary runs in one process; under CTest each case gets its own. */
+  int slot = (strcmp(format, "AVIF") == 0)? 1: 0;
+
+  if (state[slot] == UNKNOWN)
+  {
+    imImage* probe = imImageCreate(16, 16, IM_GRAY, IM_BYTE);
+    REQUIRE(probe != NULL);
+    fill_pattern(probe);
+
+    /* Named after the caller's file, so two cases probing at once under
+       'ctest -j' do not write the same path. */
+    std::string probe_file = std::string(file) + ".probe";
+
+    int error = IM_ERR_NONE;
+    imImage* loaded = round_trip(probe, format, probe_file.c_str(), 1, 100,
+                                 &error);
+
+    state[slot] = loaded? PRESENT: MISSING;
+    probe_error[slot] = error;
+
+    if (loaded)
+      imImageDestroy(loaded);
+
+    imImageDestroy(probe);
+  }
+
+  if (state[slot] == PRESENT)
     return false;
 
-  MESSAGE("skipping " << format << ": this libheif has no codec for it");
+  MESSAGE("skipping " << format << ": this libheif has no codec for it -- "
+                      << "8 bit gray does not round-trip either, error "
+                      << probe_error[slot]);
   return true;
 }
 
@@ -172,7 +215,7 @@ TEST_CASE("HEIF: gray round-trips exactly with Lossless")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
-    if (codec_unavailable(save_error, formats[f]))
+    if (!loaded && codec_unavailable(formats[f], files[f]))
     {
       imImageDestroy(source);
       continue;
@@ -205,7 +248,7 @@ TEST_CASE("HEIF: RGB round-trips within the conversion rounding floor")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
-    if (codec_unavailable(save_error, formats[f]))
+    if (!loaded && codec_unavailable(formats[f], files[f]))
     {
       imImageDestroy(source);
       continue;
@@ -242,7 +285,7 @@ TEST_CASE("HEIF: an alpha channel survives the round-trip")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100, &save_error);
 
-    if (codec_unavailable(save_error, formats[f]))
+    if (!loaded && codec_unavailable(formats[f], files[f]))
     {
       imImageDestroy(source);
       continue;
@@ -273,23 +316,40 @@ TEST_CASE("HEIF: IM_USHORT is written at 12 bits and scaled back on read")
     fill_pattern(source);
 
     int save_error = IM_ERR_NONE;
+    /* Read back as std::string: doctest's message stream prints a bare
+       const char* as its address, not its text. */
     const char* stage = "";
     imImage* loaded = round_trip(source, formats[f], files[f], 1, 100,
                                  &save_error, &stage);
+
+    if (!loaded && codec_unavailable(formats[f], files[f]))
+    {
+      imImageDestroy(source);
+      continue;
+    }
 
     /* More than 8 bits per sample depends on how the codec was built, not on
      * anything this driver does: vcpkg's x265 and libde265 are 8-bit builds,
      * so a 12-bit file encodes but will not decode there. Report and skip
      * rather than demand every platform ship a high-bit-depth codec -- the
-     * 8-bit cases above already cover the scaling path's structure. */
-    if (!loaded)
+     * 8-bit cases above already cover the scaling path's structure.
+     *
+     * libheif calls that an unsupported feature, which the driver maps to
+     * IM_ERR_COMPRESS, and the probe above has already established that the
+     * codec itself is present -- so here that code means the bit depth and
+     * nothing else. Every other error is a defect in the scaling path this
+     * case exists to cover, and must fail rather than skip. */
+    if (!loaded && save_error == IM_ERR_COMPRESS)
     {
-      MESSAGE("skipping " << formats[f] << " at 12 bits: " << stage
-                          << " failed with error " << save_error
+      MESSAGE("skipping " << formats[f] << " at 12 bits: " << std::string(stage)
+                          << " reported an unsupported feature"
                           << " (codec built without high bit depth?)");
       imImageDestroy(source);
       continue;
     }
+
+    REQUIRE_MESSAGE(loaded != NULL, "save/load failed at " << std::string(stage)
+                                    << ", error " << save_error);
 
     CHECK(loaded->data_type == IM_USHORT);
     CHECK(max_sample_difference(source, loaded) <= 15);
@@ -317,7 +377,7 @@ TEST_CASE("HEIF: a lossy write still preserves geometry and type")
     int save_error = IM_ERR_NONE;
     imImage* loaded = round_trip(source, formats[f], files[f], 0, 80, &save_error);
 
-    if (codec_unavailable(save_error, formats[f]))
+    if (!loaded && codec_unavailable(formats[f], files[f]))
     {
       imImageDestroy(source);
       continue;
@@ -343,12 +403,12 @@ TEST_CASE("HEIF: the file reports its own codec, whichever driver opened it")
 
   int save_error = IM_ERR_NONE;
   imImage* loaded = round_trip(source, "AVIF", "brand.avif", 1, 100, &save_error);
-  if (codec_unavailable(save_error, "AVIF"))
+  if (!loaded && codec_unavailable("AVIF", "brand.avif"))
   {
     imImageDestroy(source);
     return;
   }
-  REQUIRE(loaded != NULL);
+  REQUIRE_MESSAGE(loaded != NULL, "save/load failed, error " << save_error);
   imImageDestroy(loaded);
 
   int error = IM_ERR_NONE;
@@ -433,11 +493,12 @@ TEST_CASE("HEIF: files from an independent encoder decode correctly")
    * driver against an encoder it had no part in. */
   struct Case {
     const char* file;
+    const char* format;      /* the driver whose codec this fixture needs */
     int width, height, color_space;
   };
   const Case cases[] = {
-    { "external_gray.heic", 256, 256, IM_GRAY },   /* rice.png is grayscale */
-    { "external_rgb.avif",  184, 148, IM_RGB  },
+    { "external_gray.heic", "HEIF", 256, 256, IM_GRAY },  /* rice.png is gray */
+    { "external_rgb.avif",  "AVIF", 184, 148, IM_RGB  },
   };
 
   for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++)
@@ -449,7 +510,7 @@ TEST_CASE("HEIF: files from an independent encoder decode correctly")
     int error = IM_ERR_NONE;
     imImage* image = imFileImageLoad(path.c_str(), 0, &error);
 
-    if (codec_unavailable(error, cases[c].file))
+    if (!image && codec_unavailable(cases[c].format, cases[c].file))
       continue;
     REQUIRE_MESSAGE(image != NULL, "load failed, error " << error);
     CHECK(image->width == cases[c].width);
