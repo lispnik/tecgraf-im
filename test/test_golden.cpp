@@ -482,3 +482,154 @@ TEST_CASE("golden: RGB to gray matches the Rec601 luma transform")
   imImageDestroy(dst);
   imImageDestroy(want);
 }
+
+
+/* ================================================================== *
+ * Colour space conversions
+ *
+ * These reach the largest file in libim that is still thinly covered,
+ * im_convertcolor.cpp, and they check the whole path rather than the inline
+ * maths in im_color.h that test_convert.cpp already pins: the transfer
+ * function, the matrix, and the quantization back to bytes, end to end
+ * against a second implementation.
+ *
+ * Generating the references needed one non-obvious step, recorded in the
+ * regeneration script: "-set colorspace sRGB" after the conversion. Without
+ * it ImageMagick converts back to sRGB on the way into a PPM, since PPM is an
+ * RGB format and version 7 tracks what a file holds. The reference then
+ * disagrees by up to 251 levels and reads like a defect in this library
+ * rather than a round trip in the reference.
+ * ================================================================== */
+
+namespace {
+
+/* Per-plane worst difference across a colour image. */
+int worst_plane_difference(const imImage* a, const imImage* b, int plane)
+{
+  int worst = 0;
+  for (int i = 0; i < a->count; i++)
+  {
+    int diff = (int)((imbyte**)a->data)[plane][i] -
+               (int)((imbyte**)b->data)[plane][i];
+    if (diff < 0) diff = -diff;
+    if (diff > worst) worst = diff;
+  }
+  return worst;
+}
+
+} /* namespace */
+
+TEST_CASE("golden: RGB to Y'CbCr matches the ITU-R 601 reference")
+{
+  /* Nonlinear throughout, correctly: Y'CbCr is defined on gamma-encoded
+     R'G'B', and imConvertColorSpace applies no transfer function on this
+     path. Agreement here is agreement about the 601 matrix and the zero
+     shift together. */
+  imImage* src = load_golden("src_rgb.ppm");
+  imImage* dst = imImageCreate(src->width, src->height, IM_YCBCR, IM_BYTE);
+  REQUIRE(dst != NULL);
+  REQUIRE(imConvertColorSpace(src, dst) == IM_ERR_NONE);
+
+  imImage* want = load_golden("rgb2ycbcr.ppm");
+  for (int p = 0; p < 3; p++)
+  {
+    CAPTURE(p);
+    CHECK(worst_plane_difference(dst, want, p) <= 1);
+  }
+
+  /* And it is a real transform, not a copy: chroma has to collapse towards
+     the zero shift while luma keeps the full spread. */
+  int y_min = 255, y_max = 0, cb_min = 255, cb_max = 0;
+  for (int i = 0; i < dst->count; i++)
+  {
+    int y = ((imbyte**)dst->data)[0][i];
+    int cb = ((imbyte**)dst->data)[1][i];
+    if (y < y_min) y_min = y;
+    if (y > y_max) y_max = y;
+    if (cb < cb_min) cb_min = cb;
+    if (cb > cb_max) cb_max = cb;
+  }
+  CHECK(y_max - y_min > 100);
+  CHECK(cb_max - cb_min < y_max - y_min);
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+TEST_CASE("golden: RGB to CIE XYZ matches through the transfer function")
+{
+  /* The one that actually exercises linearisation. imConvertColorSpace calls
+     imColorTransfer2Linear on each channel before applying the sRGB matrix,
+     and agreement to within the rounding says both halves are right --
+     skipping the transfer function, or applying it twice, moves samples by
+     tens rather than by one. */
+  imImage* src = load_golden("src_rgb.ppm");
+  imImage* dst = imImageCreate(src->width, src->height, IM_XYZ, IM_BYTE);
+  REQUIRE(dst != NULL);
+  REQUIRE(imConvertColorSpace(src, dst) == IM_ERR_NONE);
+
+  imImage* want = load_golden("rgb2xyz.ppm");
+  for (int p = 0; p < 3; p++)
+  {
+    CAPTURE(p);
+    CHECK(worst_plane_difference(dst, want, p) <= 1);
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+TEST_CASE("golden: RGB to CIE L*a*b* matches once the encoding is accounted for")
+{
+  imImage* src = load_golden("src_rgb.ppm");
+  imImage* dst = imImageCreate(src->width, src->height, IM_LAB, IM_BYTE);
+  REQUIRE(dst != NULL);
+  REQUIRE(imConvertColorSpace(src, dst) == IM_ERR_NONE);
+
+  imImage* want = load_golden("rgb2lab.ppm");
+
+  SUBCASE("lightness is directly comparable")
+  {
+    CHECK(worst_plane_difference(dst, want, 0) <= 1);
+  }
+
+  SUBCASE("the chroma axes differ by a known scale, not by a computation")
+  {
+    /* IM computes a = 2.5*(fX - fY) and packs -0.5..0.5 into a byte, giving
+       637.5*d + 127.5. The standard, and ImageMagick, use a = 500*(fX - fY)
+       over -128..127, giving 500*d + 128. So the two are related by
+
+           a_IM = (a_reference - 128) * 1.275 + 127.5
+
+       and agree once that is applied. Asserting the relation rather than
+       skipping these planes is the difference between checking IM's chroma
+       against a second implementation and not checking it at all -- an
+       encoding choice is not a licence to leave two thirds of the conversion
+       unverified. */
+    for (int p = 1; p < 3; p++)
+    {
+      CAPTURE(p);
+      double worst = 0;
+      for (int i = 0; i < src->count; i++)
+      {
+        double reference = (double)((imbyte**)want->data)[p][i];
+        double expected = (reference - 128.0) * 1.275 + 127.5;
+        double got = (double)((imbyte**)dst->data)[p][i];
+        double diff = got - expected;
+        if (diff < 0) diff = -diff;
+        if (diff > worst) worst = diff;
+      }
+
+      /* Measured at 1.8: two independent quantizations to a byte, one of
+         them through the scale factor. A computation that actually differed
+         would be tens of levels out, not two. */
+      CHECK(worst <= 2.0);
+    }
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}

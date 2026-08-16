@@ -22,7 +22,15 @@
 #   median 3x3 and 5x5, binary
 #     erode                         exact in the interior; the borders differ
 #                                   because the two libraries pad differently
-#   mean 3x3, RGB to gray           within 1, which is rounding alone
+#   mean 3x3, RGB to gray,          within 1, which is rounding alone
+#     RGB to YCbCr and to XYZ,
+#     the L of RGB to Lab
+#
+# The a and b of Lab need a scale applied before they can be compared. IM
+# computes a = 2.5*(fX-fY) and packs -0.5..0.5 into a byte; the standard, and
+# ImageMagick, use a = 500*(fX-fY) over -128..127. The two differ by a factor
+# of 637.5/500 about the midpoint and agree once that is accounted for, so the
+# difference is an encoding choice rather than a disagreement about colour.
 #
 # Downsampling is deliberately absent. IM and ImageMagick disagree completely
 # about which source pixel a destination pixel samples when shrinking -- 223
@@ -98,6 +106,17 @@ magick src_bin.pgm -morphology Dilate Square:1 -depth 8 bin_dilate3.pgm
 # 7 would otherwise work in linear light and give a quite different answer, so
 # the -grayscale operator is named explicitly rather than -colorspace Gray.
 magick src_rgb.ppm -grayscale Rec601Luma -depth 8 rgb2gray601.pgm
+
+# The other colour spaces. "-set colorspace sRGB" after the conversion is
+# essential and not obvious: without it ImageMagick converts the data back to
+# sRGB on the way into a PPM, because PPM is an RGB format and version 7
+# tracks what a file is in. The reference then disagrees with IM by up to 251
+# levels and looks like a real defect rather than a round trip. The -set
+# relabels without converting, so the channel values are written as they are.
+for cs in YCbCr XYZ Lab; do
+  lc=$(echo "$cs" | tr 'A-Z' 'a-z')
+  magick src_rgb.ppm -colorspace "$cs" -set colorspace sRGB -depth 8 "rgb2$lc.ppm"
+done
 
 # The range filter is max minus min by definition, and ImageMagick has no
 # single statistic for it -- so this one is derived from the two outputs above
