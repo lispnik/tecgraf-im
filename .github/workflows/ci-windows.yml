@@ -49,8 +49,20 @@ jobs:
       - name: Install pkg-config
         shell: pwsh
         run: |
-          # pkgconfiglite for CMakeLists' pkg_check_modules calls.
-          choco install pkgconfiglite -y --no-progress
+          # pkgconfiglite for CMakeLists' pkg_check_modules calls, of which
+          # there are seven and two are REQUIRED, so the build cannot proceed
+          # without it.
+          #
+          # --allow-empty-checksums is needed because the package ships none
+          # and Chocolatey stopped permitting that by default for sources it
+          # does not consider secure; pkgconfiglite is fetched over plain HTTP
+          # from SourceForge. This restores what the install did before that
+          # default changed rather than relaxing anything further, but it is a
+          # supply-chain compromise either way: the download is unverified.
+          # Replacing it with vcpkg's own pkgconf, which this job already has
+          # a vcpkg for, would remove the dependency entirely and is the
+          # better fix when someone has time to confirm the .pc files line up.
+          choco install pkgconfiglite -y --no-progress --allow-empty-checksums
 
       - name: Set up vcpkg binary cache directory
         shell: pwsh
