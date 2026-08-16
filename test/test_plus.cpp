@@ -1442,3 +1442,469 @@ TEST_CASE("plus: FileRaw opens and closes a raw file")
   REQUIRE_MESSAGE(!loaded.Failed(), "load failed, error " << error);
   CHECK(same_data(loaded.GetHandle(), source.GetHandle()));
 }
+
+
+/* ================================================================== *
+ * The rest of the wrapper surface.
+ *
+ * Same argument as the first pass, applied to what it left: an inline that
+ * nothing instantiates is not covered by "it compiles", because it is not
+ * compiled. Three defects in this header have been found exactly that way --
+ * an inverted flag, a leak, and a copy constructor using an uninitialised
+ * pointer -- so the remainder is worth walking through rather than assuming
+ * the pattern held.
+ *
+ * VideoCapture and VideoCaptureDevice stay out, as before: they wrap
+ * libim_capture, which this build does not produce, so referencing them fails
+ * to link rather than failing a test. That is about thirty of the functions
+ * still showing as uncovered and there is nothing to be done about them here.
+ * ================================================================== */
+
+TEST_CASE("plus: the palette colour helpers agree with the C encoders")
+{
+  /* Static helpers on Palette rather than free functions, so they need the
+     class instantiated to exist at all. */
+  for (int i = 0; i < 256; i += 37)
+  {
+    CAPTURE(i);
+    imbyte r = (imbyte)i, g = (imbyte)(255 - i), b = (imbyte)((i * 3) & 0xFF);
+
+    long encoded = im::Palette::ColorEncode(r, g, b);
+    CHECK(encoded == imColorEncode(r, g, b));
+    CHECK(im::Palette::ColorRed(encoded) == r);
+    CHECK(im::Palette::ColorGreen(encoded) == g);
+    CHECK(im::Palette::ColorBlue(encoded) == b);
+  }
+}
+
+TEST_CASE("plus: every built-in palette generator is reachable")
+{
+  /* Each of these allocates through the C API and hands ownership to a
+     Palette, so this is as much about the destructor not double freeing --
+     under the sanitizers -- as about the entries. */
+  struct { const char* name; im::Palette (*make)(); } cases[] = {
+    { "gray",          im::Palette::Gray          },
+    { "red",           im::Palette::Red           },
+    { "green",         im::Palette::Green         },
+    { "blue",          im::Palette::Blue          },
+    { "yellow",        im::Palette::Yellow        },
+    { "magenta",       im::Palette::Magenta       },
+    { "cyan",          im::Palette::Cyan          },
+    { "rainbow",       im::Palette::Rainbow       },
+    { "hues",          im::Palette::Hues          },
+    { "blue ice",      im::Palette::BlueIce       },
+    { "hot iron",      im::Palette::HotIron       },
+    { "black body",    im::Palette::BlackBody     },
+    { "high contrast", im::Palette::HighContrast  },
+    { "linear",        im::Palette::Linear        },
+    { "uniform",       im::Palette::Uniform       },
+  };
+
+  for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++)
+  {
+    CAPTURE(cases[c].name);
+    im::Palette p = cases[c].make();
+    CHECK(p.Count() == 256);
+    REQUIRE(p.GetData() != NULL);
+
+    /* Not one flat colour, which is what an unfilled palette looks like.
+       Individual entries may legitimately repeat -- HighContrast cycles a
+       small set deliberately -- so this counts distinct values rather than
+       comparing two arbitrary slots. */
+    int distinct = 0;
+    for (int i = 1; i < 256; i++)
+      if (p.GetData()[i] != p.GetData()[0]) { distinct = 1; break; }
+    CHECK(distinct == 1);
+  }
+}
+
+TEST_CASE("plus: every kernel generator is reachable and odd-sized")
+{
+  struct { const char* name; im::Image (*make)(); int size; } cases[] = {
+    { "Sobel",          im::Kernel::Sobel,          3 },
+    { "Prewitt",        im::Kernel::Prewitt,        3 },
+    { "Kirsh",          im::Kernel::Kirsh,          3 },
+    { "Laplacian4",     im::Kernel::Laplacian4,     3 },
+    { "Laplacian8",     im::Kernel::Laplacian8,     3 },
+    { "Laplacian5x5",   im::Kernel::Laplacian5x5,   5 },
+    { "Laplacian7x7",   im::Kernel::Laplacian7x7,   7 },
+    { "Gradian3x3",     im::Kernel::Gradian3x3,     3 },
+    { "Gradian7x7",     im::Kernel::Gradian7x7,     7 },
+    { "Sculpt",         im::Kernel::Sculpt,         3 },
+    { "Mean3x3",        im::Kernel::Mean3x3,        3 },
+    { "Mean5x5",        im::Kernel::Mean5x5,        5 },
+    { "CircularMean5x5",im::Kernel::CircularMean5x5,5 },
+    { "Mean7x7",        im::Kernel::Mean7x7,        7 },
+    { "CircularMean7x7",im::Kernel::CircularMean7x7,7 },
+    { "Gaussian3x3",    im::Kernel::Gaussian3x3,    3 },
+    { "Gaussian5x5",    im::Kernel::Gaussian5x5,    5 },
+    { "Barlett5x5",     im::Kernel::Barlett5x5,     5 },
+    { "TopHat5x5",      im::Kernel::TopHat5x5,      5 },
+    { "TopHat7x7",      im::Kernel::TopHat7x7,      7 },
+    { "Enhance",        im::Kernel::Enhance,        5 },
+  };
+
+  for (size_t c = 0; c < sizeof(cases)/sizeof(cases[0]); c++)
+  {
+    CAPTURE(cases[c].name);
+    im::Image k = cases[c].make();
+    REQUIRE(!k.Failed());
+
+    /* A convolution kernel has to have a centre, so both sides are odd, and
+       the declared size is what the name says. */
+    CHECK(k.Width() == cases[c].size);
+    CHECK(k.Height() == cases[c].size);
+    CHECK(k.Width() % 2 == 1);
+
+    /* And it is not all zeroes, which would convolve everything to nothing. */
+    double sum_abs = 0;
+    for (int y = 0; y < k.Height(); y++)
+      for (int x = 0; x < k.Width(); x++)
+      {
+        double v = k.GetValue(0, y, x);
+        sum_abs += v < 0 ? -v : v;
+      }
+    CHECK(sum_abs > 0);
+  }
+}
+
+TEST_CASE("plus: the remaining Image methods reach their C functions")
+{
+  im::Image source(W, H, IM_RGB, IM_BYTE);
+  REQUIRE(!source.Failed());
+  fill(source);
+
+  SUBCASE("attributes copy and merge between images")
+  {
+    source.SetAttribInteger("Alpha", IM_INT, 1);
+    source.SetAttribInteger("Beta", IM_INT, 2);
+
+    im::Image target(W, H, IM_RGB, IM_BYTE);
+    target.SetAttribInteger("Beta", IM_INT, 99);
+    target.SetAttribInteger("Gamma", IM_INT, 3);
+
+    source.CopyAttributes(target);
+    CHECK(target.GetAttribInteger("Alpha") == 1);
+    CHECK(target.GetAttribInteger("Beta") == 2);   /* copy overwrites */
+
+    im::Image merged(W, H, IM_RGB, IM_BYTE);
+    merged.SetAttribInteger("Beta", IM_INT, 99);
+    source.MergeAttributes(merged);
+    CHECK(merged.GetAttribInteger("Alpha") == 1);
+    CHECK(merged.GetAttribInteger("Beta") == 99);  /* merge preserves */
+  }
+
+  SUBCASE("the raw attribute accessors round-trip")
+  {
+    const int values[3] = { 7, 8, 9 };
+    source.SetAttribute("Triple", IM_INT, 3, values);
+
+    int data_type = -1, count = -1;
+    const void* got = source.GetAttribute("Triple", &data_type, &count);
+    REQUIRE(got != NULL);
+    CHECK(data_type == IM_INT);
+    CHECK(count == 3);
+    CHECK(((const int*)got)[2] == 9);
+
+    /* The list has to name what was set. */
+    char* names[64];
+    int name_count = 64;
+    source.GetAttributeList(names, name_count);
+    CHECK(name_count > 0);
+
+    bool found = false;
+    for (int i = 0; i < name_count; i++)
+      if (names[i] && strcmp(names[i], "Triple") == 0)
+        found = true;
+    CHECK(found);
+  }
+
+  SUBCASE("CopyData moves samples without touching the metadata")
+  {
+    im::Image target(W, H, IM_RGB, IM_BYTE);
+    target.SetAttribInteger("Kept", IM_INT, 5);
+    source.CopyData(target);
+
+    for (int i = 0; i < N; i++)
+      CHECK(target.GetValue(0, i / W, i % W) == source.GetValue(0, i / W, i % W));
+    CHECK(target.GetAttribInteger("Kept") == 5);
+  }
+
+  SUBCASE("the setters relabel and the makers rescale, and neither does both")
+  {
+    /* Easy to assume otherwise from the names. SetGray, SetBinary and SetMap
+       change what the image claims to be and leave every sample alone.
+       MakeBinary and MakeGray do the opposite: they rescale the samples --
+       to 0/1 and to 0/255 -- and leave the colour space exactly as it was. */
+    im::Image image(W, H, IM_GRAY, IM_BYTE);
+    for (int i = 0; i < N; i++)
+      image.SetValue(0, i / W, i % W, (double)((i % 2) ? 200 : 0));
+
+    image.SetBinary();
+    CHECK(image.ColorSpace() == IM_BINARY);
+    CHECK(image.GetValue(0, 0, 1) == 200);      /* relabelled, not rescaled */
+
+    image.SetMap();
+    CHECK(image.ColorSpace() == IM_MAP);
+    image.SetGray();
+    CHECK(image.ColorSpace() == IM_GRAY);
+    CHECK(image.GetValue(0, 0, 1) == 200);
+
+    image.MakeBinary();
+    CHECK(image.GetValue(0, 0, 1) == 1);        /* rescaled, not relabelled */
+    CHECK(image.GetValue(0, 0, 0) == 0);
+    CHECK(image.ColorSpace() == IM_GRAY);
+
+    image.MakeGray();
+    CHECK(image.GetValue(0, 0, 1) == 255);
+    CHECK(image.GetValue(0, 0, 0) == 0);
+    CHECK(image.ColorSpace() == IM_GRAY);
+  }
+
+  SUBCASE("Reshape keeps the sample count")
+  {
+    im::Image flat(W * H, 1, IM_GRAY, IM_BYTE);
+    REQUIRE(!flat.Failed());
+    flat.Reshape(W, H);
+    CHECK(flat.Width() == W);
+    CHECK(flat.Height() == H);
+  }
+
+  SUBCASE("ConvertToBitmap produces something displayable")
+  {
+    im::Image wide(W, H, IM_GRAY, IM_INT);
+    for (int i = 0; i < N; i++)
+      wide.SetValue(0, i / W, i % W, (double)(i * 100));
+
+    im::Image bitmap(W, H, IM_GRAY, IM_BYTE);
+    CHECK(wide.ConvertToBitmap(bitmap, IM_CPX_REAL, 0, false, IM_CAST_MINMAX) == IM_ERR_NONE);
+    CHECK(bitmap.IsBitmap());
+  }
+}
+
+TEST_CASE("plus: the remaining File methods reach their C functions")
+{
+  std::string path = scratch("plus_file_attribs.tif");
+
+  im::Image source(W, H, IM_RGB, IM_BYTE);
+  REQUIRE(!source.Failed());
+  fill(source);
+
+  int error = IM_ERR_NONE;
+  {
+    im::File out(path.c_str(), "TIFF", error);
+    REQUIRE_MESSAGE(!out.Failed(), "create failed, error " << error);
+
+    out.SetInfo("NONE");
+
+    const int triple[3] = { 4, 5, 6 };
+    out.SetAttribute("Triple", IM_INT, 3, triple);
+    out.SetAttribReal("Scale", IM_DOUBLE, 2.5);
+    out.SetAttribString("Author", "a name");
+
+    int data_type = -1, count = -1;
+    const void* got = out.GetAttribute("Triple", data_type, count);
+    REQUIRE(got != NULL);
+    CHECK(data_type == IM_INT);
+    CHECK(count == 3);
+
+    CHECK(out.GetAttribReal("Scale", 0) == doctest::Approx(2.5));
+    CHECK(strcmp(out.GetAttribString("Author"), "a name") == 0);
+
+    CHECK(out.SaveImage(source) == IM_ERR_NONE);
+  }
+
+  SUBCASE("LoadFrame fills an image the caller already has")
+  {
+    im::File in(path.c_str(), error);
+    REQUIRE_MESSAGE(!in.Failed(), "open failed, error " << error);
+
+    im::Image target(W, H, IM_RGB, IM_BYTE);
+    error = IM_ERR_NONE;
+    in.LoadFrame(0, target, error, false);
+    REQUIRE_MESSAGE(error == IM_ERR_NONE, "load frame error " << error);
+
+    for (int i = 0; i < N; i++)
+      CHECK(target.GetValue(0, i / W, i % W) == source.GetValue(0, i / W, i % W));
+  }
+}
+
+TEST_CASE("plus: the Format namespace reaches its remaining entry points")
+{
+  /* RegisterInternal is idempotent -- the C side guards it with a flag -- so
+     calling it here is safe. RemoveAll deliberately is not called: it would
+     unregister every driver for the rest of the process, and while CTest runs
+     each case separately, a developer running the binary directly would see
+     every later format case fail for no visible reason. */
+  im::Format::RegisterInternal();
+
+  char extra[256] = { 0 };
+  CHECK(im::Format::InfoExtra("TIFF", extra) == IM_ERR_NONE);
+
+  /* Same contract as Format::List: the array receives pointers into
+     imFormatCompressions' own static storage rather than copies into buffers
+     the caller supplies, so allocating them and freeing what comes back
+     corrupts the heap. Neither function documents it. */
+  char* comp[64];
+  int comp_count = 0;
+
+  CHECK(im::Format::Compressions("TIFF", comp, comp_count, IM_RGB, IM_BYTE) == IM_ERR_NONE);
+  CHECK(comp_count > 0);
+  CHECK(comp_count <= 64);
+
+  /* TIFF advertises several, and NONE is always among the ones it can write
+     an 8-bit RGB image with. */
+  bool found_none = false;
+  for (int i = 0; i < comp_count; i++)
+  {
+    REQUIRE(comp[i] != NULL);
+    if (strcmp(comp[i], "NONE") == 0) found_none = true;
+  }
+  CHECK(found_none);
+}
+
+TEST_CASE("plus: the remaining Calc entry points agree with the C ones")
+{
+  im::Image image(W, H, IM_GRAY, IM_BYTE);
+  REQUIRE(!image.Failed());
+  for (int i = 0; i < N; i++)
+    image.SetValue(0, i / W, i % W, (double)((i * 11) % 200));
+
+  SUBCASE("per-plane histogram")
+  {
+    im::Histogram histogram(IM_BYTE);
+    CHECK(im::Calc::Histogram(image, histogram, 0, 0) != 0);
+
+    unsigned long reference[256];
+    CHECK(imCalcHistogram(image.GetHandle(), reference, 0, 0) != 0);
+    for (int i = 0; i < 256; i++)
+    {
+      CAPTURE(i);
+      CHECK(histogram[i] == reference[i]);
+    }
+  }
+
+  SUBCASE("histogram statistics")
+  {
+    imStats stats, reference;
+    CHECK(im::Calc::HistogramStatistics(image, stats) != 0);
+    CHECK(imCalcHistogramStatistics(image.GetHandle(), &reference) != 0);
+    CHECK(stats.mean == doctest::Approx(reference.mean));
+    CHECK(stats.stddev == doctest::Approx(reference.stddev));
+  }
+
+  SUBCASE("median and mode")
+  {
+    int median = -1, mode = -1, ref_median = -1, ref_mode = -1;
+    CHECK(im::Calc::HistoImageStatistics(image, &median, &mode) != 0);
+    CHECK(imCalcHistoImageStatistics(image.GetHandle(), &ref_median, &ref_mode) != 0);
+    CHECK(median == ref_median);
+    CHECK(mode == ref_mode);
+  }
+
+  SUBCASE("percent min and max")
+  {
+    int lo = -1, hi = -1, ref_lo = -1, ref_hi = -1;
+    CHECK(im::Calc::PercentMinMax(image, 10, 0, lo, hi) != 0);
+    CHECK(imCalcPercentMinMax(image.GetHandle(), 10, 0, &ref_lo, &ref_hi) != 0);
+    CHECK(lo == ref_lo);
+    CHECK(hi == ref_hi);
+    CHECK(lo <= hi);
+  }
+
+  SUBCASE("signal to noise ratio")
+  {
+    im::Image noise(W, H, IM_GRAY, IM_BYTE);
+    for (int i = 0; i < N; i++)
+      noise.SetValue(0, i / W, i % W, (double)(i % 5));
+
+    double snr = -1, reference = -1;
+    CHECK(im::Calc::SNR(image, noise, snr) != 0);
+    CHECK(imCalcSNR(image.GetHandle(), noise.GetHandle(), &reference) != 0);
+    CHECK(snr == doctest::Approx(reference));
+  }
+}
+
+TEST_CASE("plus: the remaining Analyze measurements reach their C functions")
+{
+  /* Its own size rather than the file's 6x4: FindRegions is called with
+     touch_border 0, which discards any region reaching the edge, and a blob
+     big enough to have a hole does not fit inside a 6x4 image without
+     touching one. */
+  const int AW = 16, AH = 12;
+
+  im::Image binary(AW, AH, IM_BINARY, IM_BYTE);
+  REQUIRE(!binary.Failed());
+  binary.Clear();
+
+  /* A solid blob with a single hole punched in it, well clear of the edge. */
+  for (int y = 3; y <= 8; y++)
+    for (int x = 3; x <= 9; x++)
+      binary.SetValue(0, y, x, 1);
+  binary.SetValue(0, 5, 6, 0);
+
+  im::Image regions(AW, AH, IM_GRAY, IM_USHORT);
+  int region_count = 0;
+  REQUIRE(im::Analyze::FindRegions(binary, regions, 4, 0, region_count) != 0);
+  REQUIRE(region_count >= 1);
+
+  im::MeasureTable measures(region_count);
+
+  /* Order matters here and nothing enforces it: MeasurePrincipalAxis reads
+     the Area and Centroid rows out of the table and passes whatever it finds
+     to the C function, so calling it before MeasureArea and MeasureCentroid
+     hands that function null pointers. The wrapper offers no hint of the
+     dependency -- worth knowing before reaching for these out of order. */
+  REQUIRE(im::Analyze::MeasureArea(regions, measures) != 0);
+  REQUIRE(im::Analyze::MeasureCentroid(regions, measures) != 0);
+
+  CHECK(im::Analyze::MeasurePerimArea(regions, measures) != 0);
+  CHECK(im::Analyze::MeasurePrincipalAxis(regions, measures) != 0);
+  CHECK(im::Analyze::MeasureHoles(regions, 4, measures) != 0);
+  CHECK(im::Analyze::MeasurePerimeter(regions, measures) != 0);
+
+  /* The blob is 6 by 7 with one pixel punched out, so its area and hole
+     count are both known rather than merely plausible. */
+  const int* area = measures.GetMeasureInt("Area");
+  REQUIRE(area != NULL);
+  CHECK(area[0] == 6 * 7 - 1);
+
+  const int* holes = measures.GetMeasureInt("HolesCount");
+  REQUIRE(holes != NULL);
+  CHECK(holes[0] == 1);
+
+  const int* holes_area = measures.GetMeasureInt("HolesArea");
+  REQUIRE(holes_area != NULL);
+  CHECK(holes_area[0] == 1);
+
+  /* GetMeasureDouble is the separate accessor for the real-valued rows. */
+  const double* perimeter = measures.GetMeasureDouble("Perimeter");
+  REQUIRE(perimeter != NULL);
+  CHECK(perimeter[0] > 0);
+
+  const double* major = measures.GetMeasureDouble("MajorLength");
+  REQUIRE(major != NULL);
+  CHECK(major[0] > 0);
+}
+
+TEST_CASE("plus: AttribTable iterates its entries")
+{
+  im::AttribTable table(101);
+  table.SetInteger("one", IM_INT, 1);
+  table.SetInteger("two", IM_INT, 2);
+  table.SetInteger("three", IM_INT, 3);
+
+  struct Counter
+  {
+    static int count(void* user_data, int, const char*, int, int, const void*)
+    {
+      (*(int*)user_data)++;
+      return 1;
+    }
+  };
+
+  int seen = 0;
+  table.ForEach(&seen, Counter::count);
+  CHECK(seen == 3);
+  CHECK(seen == table.Count());
+}

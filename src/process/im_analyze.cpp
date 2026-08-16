@@ -1070,7 +1070,13 @@ int imAnalyzeMeasureHoles(const imImage* image, int connect, int region_count, i
   double* holes_perim = 0;
   if (perim_data) 
   {
-    holes_perim = (double*)malloc(holes_count*sizeof(int));
+    /* sizeof(double), not sizeof(int). imAnalyzeMeasurePerimeter writes
+       holes_count doubles into this and begins by memsetting all of them, so
+       an int-sized allocation is exactly half what it needs -- a heap
+       overflow on the first hole. The line above allocates holes_area for
+       imAnalyzeMeasureArea, which really does take an int*, and this was
+       evidently copied from it. */
+    holes_perim = (double*)malloc(holes_count*sizeof(double));
     ret = imAnalyzeMeasurePerimeter(holes_image, holes_perim, holes_count);
 
     if (!ret)
