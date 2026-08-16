@@ -24,7 +24,9 @@
    and friends, but kept the umbrella including all of them, so this source
    builds unchanged against 1.17 through current.
 
-   1.17 is the floor because 1.12 has no heif_brand2_avif. Note also that
+   1.17 is the floor because heif_brand2_avif, which iHEIFFileIsAVIF needs,
+   arrived in 1.16 and 1.17.6 is what the oldest CI runner ships; see the
+   longer note in CMakeLists.txt. Note also that
    distributions increasingly ship libheif's codecs as separate plugins
    (Ubuntu 24.04 does), so a libheif that links fine can still have no
    encoder at run time -- WriteImageInfo reports that as IM_ERR_COMPRESS. */

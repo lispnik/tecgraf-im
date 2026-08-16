@@ -23,10 +23,6 @@ env:
   # (libde265 + x265) but no AV1, so AVIF had no encoder or decoder and every
   # test that touches it failed. 'aom' supplies both.
   VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua "libheif[core,hevc,aom]"
-  # Cache keys may not contain commas, and the libheif feature list has them,
-  # so the key is a manual tag rather than the dependency string. Bump it
-  # whenever VCPKG_DEPS changes, or the cache will be stale.
-  VCPKG_DEPS_KEY: v2-libheif-aom
 
 jobs:
   build:
@@ -61,6 +57,24 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}" | Out-Null
 
+      - name: Derive the vcpkg cache key
+        id: vcpkg-key
+        shell: pwsh
+        # Hash VCPKG_DEPS so the key tracks the dependency list on its own.
+        # A hand-maintained tag was a one-way trap: actions/cache only writes
+        # an entry when the primary key misses, so once a stale key was
+        # stored, forgetting to bump it meant every later run rebuilt the
+        # changed port from source (~15 min) and never saved the result.
+        # Hashed rather than embedded because cache keys may not contain
+        # commas and the libheif feature list has them. Read through
+        # $env: rather than ${{ }} so the quotes in the value cannot break
+        # out of the script.
+        run: |
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($env:VCPKG_DEPS)
+          $sha = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+          $hex = ([System.BitConverter]::ToString($sha) -replace '-','').Substring(0,16).ToLower()
+          "hash=$hex" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache@v4
@@ -70,7 +84,7 @@ jobs:
           # phase on subsequent runs — first-run is ~15 min, cached
           # runs are ~30 s.
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-binary-cache-windows-2022-${{ env.VCPKG_DEPS_KEY }}
+          key: vcpkg-binary-cache-windows-2022-${{ steps.vcpkg-key.outputs.hash }}
           restore-keys: |
             vcpkg-binary-cache-windows-2022-
 

@@ -296,9 +296,21 @@ endif()
 
 if(IM_BUILD_HEIF)
     # libheif has shipped a pkg-config file for a long time, so unlike jasper
-    # no manual probe is needed. 1.17 is the floor: 1.12, which Ubuntu 22.04
-    # carries, has no heif_brand2_avif and does not compile. 1.17.6 (Ubuntu
-    # 24.04) is the oldest release verified to build and pass.
+    # no manual probe is needed.
+    #
+    # The hard limit is heif_brand2_avif, which iHEIFFileIsAVIF needs to read
+    # the ftyp brand. Checked against upstream's headers: absent in 1.12 (what
+    # Ubuntu 22.04 carries, hence that job building without HEIF) and still
+    # absent in 1.15, added in 1.16. So 1.16 is the true minimum and the 1.17
+    # required here is one release conservative -- it is what Ubuntu 24.04
+    # ships (1.17.6) and therefore the oldest release CI actually builds and
+    # passes against. Lower it to 1.16 only alongside a job that tests it.
+    #
+    # Note the two APIs named in the comments in ReadImageInfo,
+    # heif_image_handle_get_preferred_decoding_colorspace and
+    # heif_image_handle_get_chroma_bits_per_pixel, are not what sets the
+    # floor: the driver never calls either, and only the former is newer than
+    # 1.12 in any case.
     pkg_check_modules(LIBHEIF REQUIRED IMPORTED_TARGET libheif>=1.17)
 
     add_library(im_heif SHARED src/im_format_heif.cpp)

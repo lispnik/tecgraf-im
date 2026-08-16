@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         # HEIF is per-release: 22.04 ships libheif 1.12, which predates
-        # heif_brand2_avif and does not compile. The add-on is optional, so
-        # that job simply builds without it.
+        # heif_brand2_avif (added in 1.16) and does not compile. The add-on is
+        # optional, so that job simply builds without it.
         include:
           - os: '22.04'
             heif: 'OFF'
@@ -51,18 +51,22 @@ jobs:
       - name: Install libheif codec plugins
         # Ubuntu 24.04 ships libheif's codecs as separate plugin packages, so
         # libheif-dev on its own yields a container with no encoder and no
-        # decoder -- every HEIF test then fails with IM_ERR_COMPRESS. The
-        # packages do not exist on 22.04, hence the probe rather than a plain
-        # install.
+        # decoder.
+        #
+        # Gated on the matrix rather than probed for each package with
+        # apt-cache. A probe cannot tell "not packaged for this release" from
+        # "renamed since this was written", and the quiet answer to both was a
+        # skip -- which on a rename would give a libheif with no AV1 codec,
+        # every AVIF case skipping itself as codec-unavailable, and a fully
+        # green run with AVIF untested. Installing outright means a rename
+        # fails the job, which is the outcome that gets noticed. The releases
+        # that have no plugin packages are exactly the ones building without
+        # HEIF, so nothing is lost.
+        if: matrix.heif == 'ON'
         run: |
-          for pkg in libheif-plugin-libde265 libheif-plugin-x265 \
-                     libheif-plugin-aomdec libheif-plugin-aomenc; do
-            if apt-cache show "$pkg" >/dev/null 2>&1; then
-              sudo apt-get install -y --no-install-recommends "$pkg"
-            else
-              echo "skipping $pkg: not packaged for this release"
-            fi
-          done
+          sudo apt-get install -y --no-install-recommends \
+            libheif-plugin-libde265 libheif-plugin-x265 \
+            libheif-plugin-aomdec libheif-plugin-aomenc
 
       - name: Configure
         run: |

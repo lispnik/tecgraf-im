@@ -46,9 +46,30 @@ target_compile_definitions(im_tests
     PRIVATE IM_TEST_OUTPUT_DIR="${IM_TEST_OUTPUT_DIR}"
             IM_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
+# Point LeakSanitizer at the suppression file whenever the sanitizers are on,
+# so a local run behaves like CI. ci-sanitizers.yml sets LSAN_OPTIONS in the
+# job environment, which does nothing for a developer following the flow
+# documented in CLAUDE.md (-DIM_ENABLE_SANITIZERS=ON, then ctest): they hit
+# the x265 encoder leak that test/lsan.supp exists to silence, and see red
+# locally against green in CI with no hint why.
+#
+# Linux only, because Darwin has no LeakSanitizer -- ASan there aborts every
+# binary the moment detect_leaks is asked for.
+#
+# Passed through doctest_discover_tests rather than set_tests_properties:
+# discovery happens at build time, so the tests do not exist yet as far as
+# this file is concerned. The workflow keeps its own LSAN_OPTIONS for runs
+# that invoke the binary directly instead of going through ctest; the two
+# name the same file.
+set(_im_test_properties "")
+if(IM_ENABLE_SANITIZERS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(_im_test_properties PROPERTIES ENVIRONMENT
+        "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp")
+endif()
+
 # One CTest entry per TEST_CASE, so a crash isolates to a single reported
 # test rather than an opaque whole-binary failure.
-doctest_discover_tests(im_tests)
+doctest_discover_tests(im_tests ${_im_test_properties})
 
 # The forked crash probes that used to live here (test_attrib_isolated.cpp)
 # are gone: the two cases they covered -- a negative element count reaching
