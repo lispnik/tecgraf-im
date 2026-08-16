@@ -56,7 +56,14 @@ class imFileFormatPNG: public imFileFormatBase
   void iWriteAttrib(imAttribTable* attrib_table);
 
 public:
-  imFileFormatPNG(const imFormat* _iformat): imFileFormatBase(_iformat) {}
+  /* Both pointers have to start NULL. Open() creates png_ptr but not
+     info_ptr -- that only happens in ReadImageInfo -- so a caller that opens
+     a file and closes it without reading the image, which is exactly what
+     imFileGetInfo is for, reached png_destroy_read_struct with an
+     uninitialised info_ptr and libpng dereferenced whatever was on the stack.
+     png_destroy_*_struct copes with NULL. */
+  imFileFormatPNG(const imFormat* _iformat)
+    : imFileFormatBase(_iformat), png_ptr(NULL), info_ptr(NULL) {}
   ~imFileFormatPNG() {}
 
   int Open(const char* file_name);

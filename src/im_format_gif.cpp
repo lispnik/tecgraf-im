@@ -1431,7 +1431,15 @@ int imFileFormatGIF::ReadImageData(void* data)
       if (lin > this->height-1)
       {
         gif_data.step++;
-        lin = InterlacedOffset[gif_data.step];
+
+        /* Both tables hold four passes. The loop runs once per line, so on
+           the last line this advances past the fourth pass and used to index
+           InterlacedOffset[4] -- an out-of-bounds read of a global, which
+           AddressSanitizer catches on any interlaced write. The value was
+           never used, because the loop ends immediately afterwards, so
+           guarding it changes nothing else. */
+        if (gif_data.step < 4)
+          lin = InterlacedOffset[gif_data.step];
       }
 	  }
 	  else
@@ -1469,7 +1477,15 @@ int imFileFormatGIF::WriteImageData(void* data)
       if (lin > this->height-1)
       {
         gif_data.step++;
-        lin = InterlacedOffset[gif_data.step];
+
+        /* Both tables hold four passes. The loop runs once per line, so on
+           the last line this advances past the fourth pass and used to index
+           InterlacedOffset[4] -- an out-of-bounds read of a global, which
+           AddressSanitizer catches on any interlaced write. The value was
+           never used, because the loop ends immediately afterwards, so
+           guarding it changes nothing else. */
+        if (gif_data.step < 4)
+          lin = InterlacedOffset[gif_data.step];
       }
 	  }
 	  else

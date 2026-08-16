@@ -16,6 +16,7 @@ add_executable(im_tests
     test_attrib.cpp
     test_bin.cpp
     test_convert.cpp
+    test_format.cpp
     test_misc.cpp
     test_datatype.cpp)
 
