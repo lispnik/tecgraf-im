@@ -334,11 +334,16 @@ TEST_CASE("HEIF: IM_USHORT is written at 12 bits and scaled back on read")
      * rather than demand every platform ship a high-bit-depth codec -- the
      * 8-bit cases above already cover the scaling path's structure.
      *
-     * libheif calls that an unsupported feature, which the driver maps to
+     * The codec reports its refusal as one of libheif's unsupported-feature
+     * or codec-plugin errors, all of which the driver maps to
      * IM_ERR_COMPRESS, and the probe above has already established that the
      * codec itself is present -- so here that code means the bit depth and
      * nothing else. Every other error is a defect in the scaling path this
-     * case exists to cover, and must fail rather than skip. */
+     * case exists to cover, and must fail rather than skip.
+     *
+     * Windows is the platform that exercises this: vcpkg's x265 and libde265
+     * are 8-bit builds, so the 12-bit encode is refused there while Linux and
+     * macOS run the case for real. */
     if (!loaded && save_error == IM_ERR_COMPRESS)
     {
       MESSAGE("skipping " << formats[f] << " at 12 bits: " << std::string(stage)

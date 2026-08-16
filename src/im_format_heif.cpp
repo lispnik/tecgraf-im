@@ -137,7 +137,22 @@ static int iHEIFError(struct heif_error err)
   case heif_error_Invalid_input:
   case heif_error_Unsupported_filetype:
     return IM_ERR_FORMAT;
+  /* Everything the codec itself refuses, not just what libheif calls an
+     unsupported feature. A codec that cannot encode what it was handed, or
+     whose plugin will not load, is a compression failure from IM's point of
+     view -- lumping those into the default arm reported them as IM_ERR_ACCESS
+     and made a codec limitation indistinguishable from an I/O problem.
+
+     Found from CI rather than by reading: vcpkg's x265 is an 8-bit build, and
+     asking it for the 12-bit encode IM_USHORT requires failed on Windows with
+     one of these rather than with Unsupported_feature, so the 12-bit test
+     could not tell "this codec was built without high bit depth" from a real
+     defect. */
   case heif_error_Unsupported_feature:
+  case heif_error_Decoder_plugin_error:
+  case heif_error_Encoder_plugin_error:
+  case heif_error_Encoding_error:
+  case heif_error_Plugin_loading_error:
     return IM_ERR_COMPRESS;
   case heif_error_Memory_allocation_error:
     return IM_ERR_MEM;
