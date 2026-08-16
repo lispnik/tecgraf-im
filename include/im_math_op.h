@@ -62,6 +62,43 @@ inline T inv_op(const T& v)
   return T(1)/v;
 }
 
+/* Integer division by zero is undefined, and a zero sample is an ordinary
+   black pixel rather than an edge case: "1/0" raises SIGFPE and kills the
+   process on x86, while on ARM the same expression quietly yields 0. The
+   overloads below make the integer cases defined.
+
+   They yield 0 for a zero input, for two reasons. It is what this library
+   already does with a degenerate input elsewhere -- sqrt of a negative value
+   below, cpxnorm_op of the origin in im_arithmetic_un.cpp -- and it is what
+   the ARM builds have always produced, so no platform that works today
+   changes behaviour.
+
+   The generic template above still takes float and double, where 1.0/0.0 is
+   a defined infinity rather than undefined behaviour, and imComplex, which
+   divides through its own operators.
+
+   This covers inv_op only. div_op has the same trap for a zero second
+   operand and is deliberately left as it is. */
+inline imbyte inv_op(const imbyte& v)
+{
+  return v == 0? (imbyte)0: (imbyte)(1/v);
+}
+
+inline imushort inv_op(const imushort& v)
+{
+  return v == 0? (imushort)0: (imushort)(1/v);
+}
+
+inline short inv_op(const short& v)
+{
+  return v == 0? (short)0: (short)(1/v);
+}
+
+inline int inv_op(const int& v)
+{
+  return v == 0? 0: 1/v;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 
 /// Generic Difference with 2 template types

@@ -221,7 +221,7 @@ static void DoUnaryOpByte(T1 *map, imbyte *new_map, int count, int op)
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
     for (i = 0; i < count; i++)
-      new_map[i] = (imbyte)crop_byte(inv_op((int)map[i]));   /* will always be 0 */
+      new_map[i] = (imbyte)crop_byte(inv_op((int)map[i]));   /* 1 stays 1, everything else truncates to 0 */
     break;
   case IM_UN_EQL:
 #ifdef _OPENMP
