@@ -15,6 +15,7 @@ add_executable(im_tests
     test_main.cpp
     test_attrib.cpp
     test_bin.cpp
+    test_convert.cpp
     test_datatype.cpp)
 
 # The HEIF driver is an optional add-on, so its tests compile only when it is
