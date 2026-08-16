@@ -10,12 +10,14 @@
 #include <im_convert.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 #include "im_process_pnt.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -119,6 +121,10 @@ static int DoGrayMorphConvolve(T *map, T* new_map, int width, int height, const 
 
 int imProcessGrayMorphConvolve(const imImage* src_image, imImage* dst_image, const imImage *kernel, int ismax)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("GrayMorphConvolve");

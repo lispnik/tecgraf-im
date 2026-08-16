@@ -9,10 +9,12 @@
 #include <im_util.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 template <class T> 
 static void DoBitwiseOp(T *map1, T *map2, T *map, int count, int op)
@@ -47,6 +49,10 @@ static void DoBitwiseOp(T *map1, T *map2, T *map, int count, int op)
 
 void imProcessBitwiseOp(const imImage* src_image1, const imImage* src_image2, imImage* dst_image, int op)
 {
+  assert(imCheckSameTypeSize(src_image1, dst_image));
+  if (!imCheckSameTypeSize(src_image1, dst_image))
+    return ;
+
   int count = src_image1->count*src_image1->depth;
 
   switch(src_image1->data_type)
@@ -87,6 +93,10 @@ static void DoBitwiseNotBin(imbyte *map1, imbyte *map, int count)
 
 void imProcessBitwiseNot(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int count = src_image->count*src_image->depth;
 
   if (dst_image->color_space == IM_BINARY)
@@ -114,6 +124,10 @@ void imProcessBitwiseNot(const imImage* src_image, imImage* dst_image)
 
 void imProcessBitMask(const imImage* src_image, imImage* dst_image, unsigned char mask, int op)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   imbyte* src_map = (imbyte*)src_image->data[0];
   imbyte* dst_map = (imbyte*)dst_image->data[0];
   int i;
@@ -149,6 +163,10 @@ void imProcessBitMask(const imImage* src_image, imImage* dst_image, unsigned cha
 
 void imProcessBitPlane(const imImage* src_image, imImage* dst_image, int plane, int reset)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   imbyte mask = imbyte(0x01 << plane);
   if (reset) mask = ~mask;
   imbyte* src_map = (imbyte*)src_image->data[0];

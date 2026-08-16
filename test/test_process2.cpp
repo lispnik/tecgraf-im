@@ -1057,4 +1057,125 @@ TEST_CASE("guards: the rank convolutions and binary morphology check too")
 
   imImageDestroy(src);
 }
+TEST_CASE("guards: the convolutions and gray morphology check their destination")
+{
+  imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(src != NULL);
+  for (int i = 0; i < GN; i++)
+    ((int*)src->data[0])[i] = i + 1;
+
+  SUBCASE("a narrower destination is refused")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0x5A);
+
+    /* Convolve, ConvolveSep, ConvolveDual, ConvolveRep, CompassConvolve,
+       ZeroCrossing and MeanConvolve write directly; the other eleven in that
+       file build a kernel and delegate to one of them, so guarding the seven
+       covers all eighteen. */
+    CHECK(imProcessMeanConvolve(src, narrow, 3) == 0);
+    CHECK(all_sentinel(narrow, 0x5A));
+    CHECK(imProcessGaussianConvolve(src, narrow, 1.5) == 0);   /* delegates */
+    CHECK(all_sentinel(narrow, 0x5A));
+    CHECK(imProcessSobelConvolve(src, narrow) == 0);           /* delegates */
+    CHECK(all_sentinel(narrow, 0x5A));
+    CHECK(imProcessGrayMorphErode(src, narrow, 3) == 0);       /* delegates */
+    CHECK(all_sentinel(narrow, 0x5A));
+
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("a smaller destination is refused")
+  {
+    imImage* small = imImageCreate(GW / 2, GH / 2, IM_GRAY, IM_INT);
+    REQUIRE(small != NULL);
+    int* data = (int*)small->data[0];
+    for (int i = 0; i < small->count; i++) data[i] = -1;
+
+    CHECK(imProcessMeanConvolve(src, small, 3) == 0);
+    for (int i = 0; i < small->count; i++)
+    {
+      CAPTURE(i);
+      CHECK(data[i] == -1);
+    }
+    imImageDestroy(small);
+  }
+
+  SUBCASE("but a matching destination still works")
+  {
+    imImage* same = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(same != NULL);
+    CHECK(imProcessMeanConvolve(src, same, 3) != 0);
+    CHECK(imProcessGrayMorphDilate(src, same, 3) != 0);
+    imImageDestroy(same);
+  }
+
+  imImageDestroy(src);
+}
+
+TEST_CASE("guards: the threshold and logic families check their destination")
+{
+  imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(src != NULL);
+  for (int i = 0; i < GN; i++)
+    ((int*)src->data[0])[i] = i * 10;
+
+  SUBCASE("a threshold wants a byte target of the same size")
+  {
+    /* The result is binary, so the type deliberately differs from an int
+       source -- what must match is the geometry. */
+    imImage* wrong_size = imImageCreate(GW / 2, GH, IM_BINARY, IM_BYTE);
+    REQUIRE(wrong_size != NULL);
+    memset(wrong_size->data[0], 0x33, (size_t)wrong_size->count);
+
+    imProcessThreshold(src, wrong_size, 50, 1);
+    CHECK(all_sentinel(wrong_size, 0x33));
+    imImageDestroy(wrong_size);
+
+    imImage* right = imImageCreate(GW, GH, IM_BINARY, IM_BYTE);
+    REQUIRE(right != NULL);
+    imProcessThreshold(src, right, 50, 1);
+    CHECK(((imbyte*)right->data[0])[0] == 0);
+    CHECK(((imbyte*)right->data[0])[GN - 1] == 1);
+    imImageDestroy(right);
+  }
+
+  SUBCASE("the bitwise operations want a matching destination")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0x44);
+    imProcessBitwiseOp(src, src, narrow, IM_BIT_AND);
+    CHECK(all_sentinel(narrow, 0x44));
+    imProcessBitwiseNot(src, narrow);
+    CHECK(all_sentinel(narrow, 0x44));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("tone gamut wants one too")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0x44);
+    imProcessToneGamut(src, narrow, IM_GAMUT_NORMALIZE, NULL);
+    CHECK(all_sentinel(narrow, 0x44));
+    imImageDestroy(narrow);
+  }
+
+  imImageDestroy(src);
+}
+
+TEST_CASE("guards: the point operations check the geometry they were given")
+{
+  /* These dispatch on the destination type already, so the type is safe --
+     the sample count comes from the source, which is what a smaller
+     destination cannot absorb. */
+  imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_BYTE);
+  REQUIRE(src != NULL);
+
+  imImage* small = imImageCreate(GW / 2, GH, IM_GRAY, IM_BYTE);
+  REQUIRE(small != NULL);
+  memset(small->data[0], 0x66, (size_t)small->count);
+
+  imProcessUnArithmeticOp(src, small, IM_UN_EQL);
+  CHECK(all_sentinel(small, 0x66));
+
+  imImageDestroy(src);
+  imImageDestroy(small);
+}
 #endif /* NDEBUG */

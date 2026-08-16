@@ -11,18 +11,30 @@
 #include <im_colorhsi.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 #include "im_process_ana.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
 
 void imProcessThresholdSaturation(imImage* src_image, imImage* dst_image, double S_min)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   imbyte *src_red = (imbyte*)src_image->data[0],
     *src_green = (imbyte*)src_image->data[1],
     *src_blue = (imbyte*)src_image->data[2];
@@ -72,6 +84,16 @@ static void DoThresholdColor(T *src_data, imbyte *dst_data, int count, int depth
 
 void imProcessThresholdColor(const imImage* src_image, imImage* dst_image, double* src_color, double tol)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   switch (src_image->data_type)
   {
   case IM_BYTE:
@@ -112,6 +134,16 @@ static void doThresholdSlice(T *src_map, imbyte *dst_map, int count, T start_lev
 
 void imProcessSliceThreshold(const imImage* src_image, imImage* dst_image, double start_level, double end_level)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   switch(src_image->data_type)
   {
   case IM_BYTE:
@@ -198,6 +230,16 @@ static void doThreshold(T *src_map, imbyte *dst_map, int count, T level, int val
 
 void imProcessThreshold(const imImage* src_image, imImage* dst_image, double level, int value)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   switch(src_image->data_type)
   {
   case IM_BYTE:
@@ -359,6 +401,16 @@ static void do_dither_error(imbyte* data1, imbyte* data2, int size, int t, int v
 
 void imProcessDiffusionErrThreshold(const imImage* src_image, imImage* dst_image, int level)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   int value = src_image->depth > 1? 255: 1;
   for (int i = 0; i < src_image->depth; i++)
   {
@@ -564,6 +616,16 @@ static void doHysteresisThreshold(T *src_map, imbyte *dst_map, int width, int he
 
 void imProcessHysteresisThreshold(const imImage* src_image, imImage* dst_image, int low_thres, int high_thres)
 {
+  /* The result is a binary image, so the destination is written as
+     bytes whatever the source is -- only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return ;
+
   switch(src_image->data_type)
   {
   case IM_BYTE:

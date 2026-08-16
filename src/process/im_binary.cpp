@@ -9,12 +9,14 @@
 #include <im_util.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 #include "im_process_pnt.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -173,6 +175,10 @@ static int DoThinImage(imbyte *map, int xsize, int ysize, int counter)
 
 int imProcessBinThinNhMaps(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int counter = imCounterBegin("BinThinNhMaps");
   imImageCopyData(src_image, dst_image);
   int ret = DoThinImage((imbyte*)dst_image->data[0], dst_image->width, dst_image->height, counter);
@@ -234,6 +240,10 @@ static inline int zhangSuenTest2(unsigned char* map, int w, int y, int x)
 
 int imProcessBinThinZhangSuen(imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int start_y = 1, start_x = 1, end_y, end_x, i, marker_count, h, w, processed, markers_size;
   unsigned char* src_map = (unsigned char*)src_image->data[0];
   unsigned char* map = (unsigned char*)dst_image->data[0];

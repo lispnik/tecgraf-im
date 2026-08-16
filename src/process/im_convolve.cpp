@@ -14,12 +14,14 @@
 #include <im_convert.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 #include "im_process_pnt.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -298,6 +300,10 @@ static int DoCompassConvolve(T* map, T* new_map, int width, int height, KT* orig
 
 int imProcessCompassConvolve(const imImage* src_image, imImage* dst_image, imImage *kernel)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("CompassConvolve");
@@ -536,6 +542,10 @@ static int DoConvolveDualCpx(imComplex<T>* map, imComplex<T>* new_map, int width
 
 int imProcessConvolveDual(const imImage* src_image, imImage* dst_image, const imImage *kernel1, const imImage *kernel2)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int counter = imProcessCounterBegin("ConvolveDual");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
 
@@ -824,6 +834,10 @@ static int DoConvolveStep(const imImage* src_image, imImage* dst_image, const im
 
 int imProcessConvolve(const imImage* src_image, imImage* dst_image, const imImage *kernel)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int counter = imProcessCounterBegin("Convolve");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
 
@@ -847,6 +861,10 @@ int imProcessConvolve(const imImage* src_image, imImage* dst_image, const imImag
 
 int imProcessConvolveRep(const imImage* src_image, imImage* dst_image, const imImage *kernel, int ntimes)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   imImage *AuxImage = imImageClone(dst_image);
   if (!AuxImage)
     return 0;
@@ -1159,6 +1177,10 @@ static int DoConvolveSepCpx(imComplex<T>* map, imComplex<T>* new_map, int width,
 
 int imProcessConvolveSep(const imImage* src_image, imImage* dst_image, const imImage *kernel)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int counter = imProcessCounterBegin("ConvolveSep");
   imCounterTotal(counter, 2 * src_image->depth*src_image->height, "Processing...");
 
@@ -1248,7 +1270,7 @@ Description:
 		| ELSE
 		|   out(x,y) = 0
 
-Author:		Tor Lønnestad, BLAB, Ifi, UiO
+Author:		Tor Lï¿½nnestad, BLAB, Ifi, UiO
 
 Copyright 1991, Blab, UiO
 Image processing lab, Department of Informatics
@@ -1374,6 +1396,10 @@ static int do_crossing(T* iband, T* oband, int width, int height, T t, int count
 
 int imProcessZeroCrossing(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
   int counter = imProcessCounterBegin("ZeroCrossing");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
@@ -1664,6 +1690,10 @@ int imProcessDiffOfGaussianConvolve(const imImage* src_image, imImage* dst_image
 
 int imProcessMeanConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int counter = imProcessCounterBegin("MeanConvolve");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
 

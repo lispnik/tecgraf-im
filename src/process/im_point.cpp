@@ -11,11 +11,13 @@
 #include <im_complex.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 #include "im_math_op.h"
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 
 template <class T1, class T2> 
@@ -61,6 +63,17 @@ static int DoUnaryPointOp(T1 *src_map, T2 *dst_map, int width, int height, int d
 
 int imProcessUnaryPointOp(const imImage* src_image, imImage* dst_image, imUnaryPointOpFunc func, double* params, void* userdata, const char* op_name)
 {
+  /* The destination type is dispatched on below, so only the geometry
+     is unchecked: the sample count comes from the source, and a smaller
+     destination is written past its end. */
+  assert(src_image->width == dst_image->width &&
+         src_image->height == dst_image->height &&
+         src_image->depth <= dst_image->depth);
+  if (src_image->width != dst_image->width ||
+      src_image->height != dst_image->height ||
+      src_image->depth > dst_image->depth)
+    return 0;
+
   int ret = 0;
   int depth = src_image->has_alpha? src_image->depth+1: src_image->depth;
 
@@ -209,6 +222,15 @@ static int DoUnaryPointColorOp(T1 **src_map, T2 **dst_map, int width, int height
 
 int imProcessUnaryPointColorOp(const imImage* src_image, imImage* dst_image, imUnaryPointColorOpFunc func, double* params, void* userdata, const char* op_name)
 {
+  /* Size only. The header is explicit that "depth can be different" here --
+     mapping three planes onto one is what this operation is for -- and each
+     side is indexed with its own depth below. The type is dispatched on. */
+  assert(src_image->width == dst_image->width &&
+         src_image->height == dst_image->height);
+  if (src_image->width != dst_image->width ||
+      src_image->height != dst_image->height)
+    return 0;
+
   int ret = 0;
   int src_depth = src_image->has_alpha && dst_image->has_alpha? src_image->depth+1: src_image->depth;
   int dst_depth = dst_image->has_alpha? dst_image->depth+1: dst_image->depth;

@@ -11,12 +11,14 @@
 #include <im_colorhsi.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 #include "im_process_ana.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -255,6 +257,10 @@ static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *a
 
 void imProcessToneGamut(const imImage* src_image, imImage* dst_image, int op, double *args)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int count = src_image->count*src_image->depth;
 
   switch(src_image->data_type)
@@ -497,6 +503,10 @@ static void DoUnNormalize(T* map, imbyte* new_map, int count)
 
 void imProcessUnNormalize(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int count = src_image->count*src_image->depth;
   imbyte* new_map = (imbyte*)dst_image->data[0];
 
@@ -525,6 +535,10 @@ static void DoDirectConv(T* map, imbyte* new_map, int count)
 
 void imProcessDirectConv(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int count = src_image->count*src_image->depth;
 
   switch(src_image->data_type)

@@ -11,11 +11,13 @@
 #include <im_complex.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 #include "im_math_op.h"
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 
 static unsigned char BoxMean(imbyte *map, int offset, int shift, int hbox_size, int vbox_size)
@@ -51,6 +53,10 @@ static void BoxSet(imbyte *map, int offset, int shift, int hbox_size, int vbox_s
 
 void imProcessPixelate(const imImage* src_image, imImage* dst_image, int box_size)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int hbox = (src_image->width  + box_size-1) / box_size;
   int vbox = (src_image->height + box_size-1) / box_size;
 
@@ -111,6 +117,10 @@ static void DoBinaryMask(T* src_map, T* dst_map, imbyte* mask_map, int count)
 
 void imProcessBinaryMask(const imImage* src_image, imImage* dst_image, const imImage* mask_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return ;
+
   int d;
 
   for (d = 0; d < src_image->depth; d++)

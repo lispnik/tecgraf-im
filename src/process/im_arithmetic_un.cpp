@@ -11,11 +11,13 @@
 #include <im_complex.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_pnt.h"
 #include "im_math_op.h"
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 
 // Fake complex operations for real types
@@ -316,6 +318,17 @@ static void DoUnaryOpByte(T1 *map, imbyte *new_map, int count, int op)
 
 void imProcessUnArithmeticOp(const imImage* src_image, imImage* dst_image, int op)
 {
+  /* The destination type is dispatched on below, so only the geometry
+     is unchecked: the sample count comes from the source, and a smaller
+     destination is written past its end. */
+  assert(src_image->width == dst_image->width &&
+         src_image->height == dst_image->height &&
+         src_image->depth <= dst_image->depth);
+  if (src_image->width != dst_image->width ||
+      src_image->height != dst_image->height ||
+      src_image->depth > dst_image->depth)
+    return ;
+
   int total_count = src_image->count * src_image->depth;  /* do NOT include alpha here */
 
   switch(src_image->data_type)
