@@ -4025,6 +4025,7 @@ static const imlua_constant im_process_constants[] = {
   { "BIT_AND", IM_BIT_AND, NULL },
   { "BIT_OR", IM_BIT_OR, NULL },
   { "BIT_XOR", IM_BIT_XOR, NULL },
+  { "BIT_NOR", IM_BIT_NOR, NULL },
 
   { "GAMUT_NORMALIZE", IM_GAMUT_NORMALIZE, NULL },
   { "GAMUT_POW", IM_GAMUT_POW, NULL },

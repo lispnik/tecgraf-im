@@ -520,8 +520,18 @@ void imProcessSelectHSI(const imImage* src_image, imImage* dst_image, double hue
 enum imLogicOp {
   IM_BIT_AND,   /**< and  =   a & b   */
   IM_BIT_OR,    /**< or   =   a | b   */
-  IM_BIT_XOR    /**< xor  = ~(a | b)  */
+  IM_BIT_XOR,   /**< xor  =   a ^ b   */
+  IM_BIT_NOR    /**< nor  = ~(a | b)  */
 };
+
+/* IM_BIT_XOR used to compute ~(a | b), which is NOR, and this enum documented
+   that formula next to a name that says otherwise. Callers reading the name
+   -- the far more likely of the two -- got an operation they did not ask for,
+   and there was no way to reach a real exclusive or at all.
+   IM_BIT_XOR is now an exclusive or and IM_BIT_NOR carries the old behaviour,
+   so nothing is lost and the name no longer misleads. Code that deliberately
+   wanted the old operation should move to IM_BIT_NOR; code that wrote
+   IM_BIT_XOR meaning exclusive or is fixed by the change. */
 
 /** Apply a logical operation.\n
  * Images must have data type integer. Can be done in-place. 

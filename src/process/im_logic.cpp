@@ -42,6 +42,13 @@ static void DoBitwiseOp(T *map1, T *map2, T *map, int count, int op)
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
     for (i = 0; i < count; i++)
+      map[i] = (T)(map1[i] ^ map2[i]);
+    break;
+  case IM_BIT_NOR:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
       map[i] = (T)~(map1[i] | map2[i]);
     break;
   }
@@ -153,11 +160,23 @@ void imProcessBitMask(const imImage* src_image, imImage* dst_image, unsigned cha
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
     for (i = 0; i < count; i++)
+      dst_map[i] = (imbyte)(src_map[i] ^ mask);
+    break;
+  case IM_BIT_NOR:
+#ifdef _OPENMP
+#pragma omp parallel for if (IM_OMP_MINCOUNT(count))
+#endif
+    for (i = 0; i < count; i++)
       dst_map[i] = (imbyte)~(src_map[i] | mask);
     break;
   }
 
-  if ((op == IM_BIT_XOR || op == IM_BIT_OR) && dst_image->color_space == IM_BINARY && mask > 1)
+  /* A result that can exceed 1 is no longer a binary image. OR and XOR can
+     only do that when the mask itself does; NOR always does, because the
+     complement of a small value is a large one, so it does not depend on the
+     mask the way the other two do. */
+  if (dst_image->color_space == IM_BINARY &&
+      (op == IM_BIT_NOR || ((op == IM_BIT_XOR || op == IM_BIT_OR) && mask > 1)))
     dst_image->color_space = IM_GRAY;
 }
 

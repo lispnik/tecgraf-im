@@ -111,6 +111,32 @@ static inline double norm_exp_op(const T& v, const T& min, const T& range, const
   return (double)((exp(K * double(v - min) / double(range)) - 1) / norm);
 }
 
+/* Every normalized operation below computes in double and casts the result
+   back to T. For an integer T that cast truncates, which biases every result
+   downward by up to one unit -- and for IM_GAMUT_INVERT it meant the
+   operation was not its own inverse: (1.0 - 254.0/255.0) * 255.0 is
+   0.9999999999999964, so 254 inverted to 0 rather than 1, and inverting twice
+   did not return the original.
+
+   Round for integer targets, and leave real ones exactly as computed. Never
+   instantiated for a complex type: imProcessToneGamut dispatches only the six
+   real ones. */
+template <class T>
+static inline T gamut_cast(const double& value)
+{
+  return (T)(value < 0? value - 0.5: value + 0.5);
+}
+
+template <> inline float gamut_cast<float>(const double& value)
+{
+  return (float)value;
+}
+
+template <> inline double gamut_cast<double>(const double& value)
+{
+  return value;
+}
+
 template <class T> 
 static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *args)
 {
@@ -155,7 +181,7 @@ static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *a
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
     for (i = 0; i < count; i++)
-      new_map[i] = (T)(invert_op(map[i], min, range)*range + min);
+      new_map[i] = gamut_cast<T>(invert_op(map[i], min, range)*range + min);
     break;
   case IM_GAMUT_ZEROSTART:
 #ifdef _OPENMP
@@ -181,7 +207,7 @@ static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *a
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
     for (i = 0; i < count; i++)
-      new_map[i] = (T)(norm_pow_op(map[i], min, range, args[0])*range + min);
+      new_map[i] = gamut_cast<T>(norm_pow_op(map[i], min, range, args[0])*range + min);
     break;
   case IM_GAMUT_LOG:
     {
@@ -190,7 +216,7 @@ static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *a
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
       for (i = 0; i < count; i++)
-        new_map[i] = (T)(norm_log_op(map[i], min, range, norm, args[0])*range + min);
+        new_map[i] = gamut_cast<T>(norm_log_op(map[i], min, range, norm, args[0])*range + min);
       break;
     }
   case IM_GAMUT_EXP:
@@ -200,7 +226,7 @@ static void DoNormalizedUnaryOp(T *map, T *new_map, int count, int op, double *a
 #pragma omp parallel for if (IM_OMP_MINCOUNT(count))
 #endif
       for (i = 0; i < count; i++)
-        new_map[i] = (T)(norm_exp_op(map[i], min, range, norm, args[0])*range + min);
+        new_map[i] = gamut_cast<T>(norm_exp_op(map[i], min, range, norm, args[0])*range + min);
       break;
     }
   case IM_GAMUT_SLICE:

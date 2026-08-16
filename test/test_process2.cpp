@@ -282,28 +282,32 @@ TEST_CASE("logic: the bitwise operations are exact")
       CHECK((int)bytes(dst)[i] == (a[i] | b[i]));
     }
   }
-  SUBCASE("IM_BIT_XOR is a NOR, whatever the constant is called")
+  SUBCASE("IM_BIT_XOR is an exclusive or")
   {
-    /* The header spells the formula out as "xor = ~(a | b)" and the code
-       agrees with the header, so this is not a defect in the implementation
-       -- but the constant is named for an operation it does not perform, and
-       ~(a|b) is NOR. Anyone reading the enum rather than the comment gets the
-       wrong function.
-
-       Pinned as it behaves. Changing it would be an API break either way
-       round: fixing the operation changes results for existing callers,
-       renaming the constant breaks their source. Worth a decision, not a
-       silent correction. */
+    /* It used to compute ~(a | b) -- a NOR -- and the header documented that
+       formula beside a name saying otherwise, so a caller reading the name
+       got the wrong operation and there was no way to reach a real exclusive
+       or at all. The old behaviour now lives under IM_BIT_NOR. */
     imProcessBitwiseOp(src1, src2, dst, IM_BIT_XOR);
     for (int i = 0; i < COUNT; i++)
     {
       CAPTURE(i);
+      CHECK((int)bytes(dst)[i] == (a[i] ^ b[i]));
+    }
+
+    /* The two are genuinely different operations, not two spellings of one. */
+    CHECK((imbyte)(a[2] ^ b[2]) != (imbyte)~(a[2] | b[2]));
+  }
+  SUBCASE("IM_BIT_NOR carries the operation the old name performed")
+  {
+    imProcessBitwiseOp(src1, src2, dst, IM_BIT_NOR);
+    for (int i = 0; i < COUNT; i++)
+    {
+      CAPTURE(i);
       CHECK((int)bytes(dst)[i] == (imbyte)~(a[i] | b[i]));
-      /* And demonstrably not the operation it is named for. */
-      if ((a[i] ^ b[i]) != (imbyte)~(a[i] | b[i]))
-        CHECK((int)bytes(dst)[i] != (a[i] ^ b[i]));
     }
   }
+
 
   imImageDestroy(src1);
   imImageDestroy(src2);
@@ -359,6 +363,20 @@ TEST_CASE("logic: a bit mask is the same operation against a constant")
   {
     CAPTURE(i);
     CHECK((int)bytes(dst)[i] == (a[i] | mask));
+  }
+
+  imProcessBitMask(src, dst, mask, IM_BIT_XOR);
+  for (int i = 0; i < COUNT; i++)
+  {
+    CAPTURE(i);
+    CHECK((int)bytes(dst)[i] == (a[i] ^ mask));
+  }
+
+  imProcessBitMask(src, dst, mask, IM_BIT_NOR);
+  for (int i = 0; i < COUNT; i++)
+  {
+    CAPTURE(i);
+    CHECK((int)bytes(dst)[i] == (imbyte)~(a[i] | mask));
   }
 
   imImageDestroy(src);
@@ -624,27 +642,15 @@ TEST_CASE("statistics: RMS error is zero only for identical images")
  * Tone gamut
  * ================================================================== */
 
-TEST_CASE("tone: a negative is the complement, and its own inverse"
-          * doctest::should_fail())
+TEST_CASE("tone: a negative is the complement, and its own inverse")
 {
-  /* imProcessNegative routes through imProcessToneGamut with
-     IM_GAMUT_INVERT, which normalises to a double and back:
-
-         invert_op(v) = 1.0 - (v - min)/range        then  * range + min
-
-     For a byte image spanning 0..255 that should be 255 - v exactly, but the
-     round trip does not land on an integer: (1.0 - 254.0/255.0) * 255.0 is
-     0.9999999999999964, and the cast to imbyte truncates, so 254 inverts to
-     0 rather than 1. The operation is therefore not an involution either --
-     inverting twice does not return the original.
-
-     Rounding rather than truncating on an integer target would fix it, the
-     way imColorQuantize already does, but the same template carries every
-     other gamut operation (normalize, pow, log, exp, solarize) for every
-     data type including float, so the change is broader than it looks and
-     wants a deliberate decision rather than a quiet edit.
-
-     Stated here as the arithmetic a caller would expect. */
+  /* imProcessNegative goes through imProcessToneGamut with IM_GAMUT_INVERT,
+     which normalises to a double and scales back. The cast to an integer
+     target used to truncate: (1.0 - 254.0/255.0) * 255.0 is
+     0.9999999999999964, so 254 inverted to 0 rather than 1 and inverting
+     twice did not return the original. It rounds now, for every gamut
+     operation rather than just this one -- truncation was biasing all of them
+     downward by up to a unit. */
   const int COUNT = 6;
   const imbyte a[6] = { 0, 1, 100, 128, 254, 255 };
 
