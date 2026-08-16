@@ -10,11 +10,13 @@
 #include <im_math.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -216,6 +218,10 @@ static double median_op_double(double* value, int count, int center)
 
 int imProcessMedianConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i, ret = 0;
   int counter;
 
@@ -311,6 +317,10 @@ static double range_op_double(double* value, int count, int center)
 
 int imProcessRangeConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i, ret = 0;
   int counter;
 
@@ -471,6 +481,17 @@ static int contrast_thres_op_int(int* value, int count, int center)
 
 int imProcessRangeContrastThreshold(const imImage* src_image, imImage* dst_image, int ks, int min_range)
 {
+  /* This one writes the destination as bytes whatever the source is --
+     the result is a binary image -- so the types deliberately differ and
+     only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return 0;
+
   int ret = 0;
   int counter = imProcessCounterBegin("RangeContrastThreshold");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
@@ -564,6 +585,17 @@ static int max_thres_op_int(int* value, int count, int center)
 
 int imProcessLocalMaxThreshold(const imImage* src_image, imImage* dst_image, int ks, int min_thres)
 {
+  /* This one writes the destination as bytes whatever the source is --
+     the result is a binary image -- so the types deliberately differ and
+     only the geometry has to line up. */
+  assert(dst_image->data_type == IM_BYTE &&
+         dst_image->width == src_image->width &&
+         dst_image->height == src_image->height);
+  if (dst_image->data_type != IM_BYTE ||
+      dst_image->width != src_image->width ||
+      dst_image->height != src_image->height)
+    return 0;
+
   int ret = 0;
   int counter = imProcessCounterBegin("LocalMaxThreshold");
   imCounterTotal(counter, src_image->depth*src_image->height, "Processing...");
@@ -676,6 +708,10 @@ static double rank_closest_op_double(double* value, int count, int center)
 
 int imProcessRankClosestConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i, ret = 0;
   int counter;
 
@@ -771,6 +807,10 @@ static double rank_max_op_double(double* value, int count, int center)
 
 int imProcessRankMaxConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i, ret = 0;
   int counter;
 
@@ -866,6 +906,10 @@ static double rank_min_op_double(double* value, int count, int center)
 
 int imProcessRankMinConvolve(const imImage* src_image, imImage* dst_image, int ks)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i, ret = 0;
   int counter;
 

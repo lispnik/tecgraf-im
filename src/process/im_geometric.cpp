@@ -9,11 +9,13 @@
 #include <im_util.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 #include "im_math_op.h"
 
 #include <stdlib.h>
 #include <memory.h>
+#include <assert.h>
 
 
 static inline void imRect2Polar(double xr, double yr, double *radius, double *theta)
@@ -632,6 +634,16 @@ static int InterlaceSplit(int width,
 
 int imProcessRotate90(const imImage* src_image, imImage* dst_image, int dir)
 {
+  /* "Target width and height must be source height and width" -- the one
+     place where equal dimensions would be the wrong check. */
+  assert(imCheckSameType(src_image, dst_image) &&
+         dst_image->width == src_image->height &&
+         dst_image->height == src_image->width);
+  if (!imCheckSameType(src_image, dst_image) ||
+      dst_image->width != src_image->height ||
+      dst_image->height != src_image->width)
+    return 0;
+
   int ret = 0;
 
   int src_depth = src_image->has_alpha && dst_image->has_alpha ? src_image->depth + 1 : src_image->depth;
@@ -679,6 +691,10 @@ int imProcessRotate90(const imImage* src_image, imImage* dst_image, int dir)
 
 int imProcessRotate180(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int src_depth = src_image->has_alpha && dst_image->has_alpha? src_image->depth+1: src_image->depth;
 
   int ret = 0;
@@ -726,6 +742,10 @@ int imProcessRotate180(const imImage* src_image, imImage* dst_image)
 
 int imProcessLensDistort(const imImage* src_image, imImage* dst_image, double a, double b, double c, int order)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("LensDistort");
@@ -773,6 +793,10 @@ int imProcessLensDistort(const imImage* src_image, imImage* dst_image, double a,
 
 int imProcessRadial(const imImage* src_image, imImage* dst_image, double k1, int order)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("Radial");
@@ -820,6 +844,10 @@ int imProcessRadial(const imImage* src_image, imImage* dst_image, double k1, int
 
 int imProcessSwirl(const imImage* src_image, imImage* dst_image, double k, int order)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("Swirl");
@@ -906,6 +934,12 @@ void imProcessCalcRotateSize(int width, int height, int *new_width, int *new_hei
 
 int imProcessRotate(const imImage* src_image, imImage* dst_image, double cos0, double sin0, int order)
 {
+  /* The target size is the caller's to pick -- imProcessCalcRotateSize
+     exists for it -- so only the type has to match here. */
+  assert(imCheckSameType(src_image, dst_image));
+  if (!imCheckSameType(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("Rotate");
@@ -960,6 +994,12 @@ int imProcessRotate(const imImage* src_image, imImage* dst_image, double cos0, d
 
 int imProcessRotateRef(const imImage* src_image, imImage* dst_image, double cos0, double sin0, int x, int y, int to_origin, int order)
 {
+  /* The target size is the caller's to pick -- imProcessCalcRotateSize
+     exists for it -- so only the type has to match here. */
+  assert(imCheckSameType(src_image, dst_image));
+  if (!imCheckSameType(src_image, dst_image))
+    return 0;
+
   int ret = 0;
 
   int counter = imProcessCounterBegin("RotateRef");
@@ -1014,6 +1054,10 @@ int imProcessRotateRef(const imImage* src_image, imImage* dst_image, double cos0
 
 int imProcessMirror(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i;
   int src_depth = src_image->has_alpha && dst_image->has_alpha? src_image->depth+1: src_image->depth;
 
@@ -1062,6 +1106,10 @@ int imProcessMirror(const imImage* src_image, imImage* dst_image)
 
 int imProcessFlip(const imImage* src_image, imImage* dst_image)
 {
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int i;
   int src_depth = src_image->has_alpha && dst_image->has_alpha? src_image->depth+1: src_image->depth;
 
@@ -1110,6 +1158,22 @@ int imProcessFlip(const imImage* src_image, imImage* dst_image)
 
 int imProcessInterlaceSplit(const imImage* src_image, imImage* dst_image1, imImage* dst_image2)
 {
+  /* Each target takes every other line, and an odd height gives the first
+     one the extra row, exactly as the header describes. */
+  int half = src_image->height / 2;
+  int first = (src_image->height % 2)? half + 1: half;
+  assert(imCheckSameType(src_image, dst_image1) &&
+         imCheckSameType(src_image, dst_image2) &&
+         dst_image1->width == src_image->width &&
+         dst_image2->width == src_image->width &&
+         dst_image1->height >= first && dst_image2->height >= half);
+  if (!imCheckSameType(src_image, dst_image1) ||
+      !imCheckSameType(src_image, dst_image2) ||
+      dst_image1->width != src_image->width ||
+      dst_image2->width != src_image->width ||
+      dst_image1->height < first || dst_image2->height < half)
+    return 0;
+
   int i;
   int src_depth = src_image->has_alpha && dst_image1->has_alpha && dst_image2->has_alpha ? src_image->depth + 1 : src_image->depth;
 

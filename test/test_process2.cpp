@@ -914,4 +914,147 @@ TEST_CASE("guards: normalizing components requires a real destination")
 
   imImageDestroy(src);
 }
+TEST_CASE("guards: the geometric operations refuse a mismatched destination")
+{
+  /* Every one of these loops over the SOURCE's dimensions and writes the
+     destination through a pointer of the SOURCE's type, so a smaller or
+     narrower target overruns its buffer. Each header says "images must be of
+     the same type and size". */
+  imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(src != NULL);
+  for (int i = 0; i < GN; i++)
+    ((int*)src->data[0])[i] = i + 1;
+
+  SUBCASE("a narrower type")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xA5);
+    CHECK(imProcessMirror(src, narrow) == 0);
+    CHECK(all_sentinel(narrow, 0xA5));
+    CHECK(imProcessFlip(src, narrow) == 0);
+    CHECK(all_sentinel(narrow, 0xA5));
+    CHECK(imProcessRotate180(src, narrow) == 0);
+    CHECK(all_sentinel(narrow, 0xA5));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("a smaller destination of the right type")
+  {
+    imImage* small = imImageCreate(GW / 2, GH / 2, IM_GRAY, IM_INT);
+    REQUIRE(small != NULL);
+    int* data = (int*)small->data[0];
+    for (int i = 0; i < small->count; i++) data[i] = -1;
+
+    CHECK(imProcessMirror(src, small) == 0);
+    for (int i = 0; i < small->count; i++)
+    {
+      CAPTURE(i);
+      CHECK(data[i] == -1);
+    }
+    imImageDestroy(small);
+  }
+
+  SUBCASE("fewer planes than the source")
+  {
+    /* A three plane source into a one plane target indexes past the end of
+       the destination's array of plane pointers, which is a different overrun
+       from the ones above and needs the depth comparison to catch it. */
+    imImage* rgb = imImageCreate(GW, GH, IM_RGB, IM_INT);
+    REQUIRE(rgb != NULL);
+    imImage* gray = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(gray != NULL);
+    ((int*)gray->data[0])[0] = -1;
+
+    CHECK(imProcessMirror(rgb, gray) == 0);
+    CHECK(((int*)gray->data[0])[0] == -1);
+
+    imImageDestroy(rgb);
+    imImageDestroy(gray);
+  }
+
+  SUBCASE("Rotate90 wants the dimensions swapped, not equal")
+  {
+    imImage* equal = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(equal != NULL);
+    ((int*)equal->data[0])[0] = -1;
+    CHECK(imProcessRotate90(src, equal, 1) == 0);
+    CHECK(((int*)equal->data[0])[0] == -1);
+    imImageDestroy(equal);
+
+    /* And the transposed one still works, or the guard would be a
+       regression rather than a fix. */
+    imImage* swapped = imImageCreate(GH, GW, IM_GRAY, IM_INT);
+    REQUIRE(swapped != NULL);
+    CHECK(imProcessRotate90(src, swapped, 1) != 0);
+    imImageDestroy(swapped);
+  }
+
+  SUBCASE("but a matching destination still works")
+  {
+    imImage* same = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+    REQUIRE(same != NULL);
+    CHECK(imProcessMirror(src, same) != 0);
+    for (int y = 0; y < GH; y++)
+      for (int x = 0; x < GW; x++)
+      {
+        CAPTURE(x); CAPTURE(y);
+        CHECK(((int*)same->data[0])[y*GW + x] ==
+              ((int*)src->data[0])[y*GW + (GW-1-x)]);
+      }
+    imImageDestroy(same);
+  }
+
+  imImageDestroy(src);
+}
+
+TEST_CASE("guards: the rank convolutions and binary morphology check too")
+{
+  imImage* src = imImageCreate(GW, GH, IM_GRAY, IM_INT);
+  REQUIRE(src != NULL);
+  for (int i = 0; i < GN; i++)
+    ((int*)src->data[0])[i] = i + 1;
+
+  SUBCASE("a narrower destination is refused")
+  {
+    imImage* narrow = sentinel_byte_image(IM_GRAY, 0xB4);
+    CHECK(imProcessMedianConvolve(src, narrow, 3) == 0);
+    CHECK(all_sentinel(narrow, 0xB4));
+    CHECK(imProcessRankMaxConvolve(src, narrow, 3) == 0);
+    CHECK(all_sentinel(narrow, 0xB4));
+    imImageDestroy(narrow);
+  }
+
+  SUBCASE("binary morphology, through all five of its entry points")
+  {
+    imImage* binary = imImageCreate(GW, GH, IM_BINARY, IM_BYTE);
+    REQUIRE(binary != NULL);
+    for (int i = 0; i < GN; i++)
+      ((imbyte*)binary->data[0])[i] = (imbyte)((i / 3) % 2);
+
+    imImage* small = imImageCreate(GW / 2, GH / 2, IM_BINARY, IM_BYTE);
+    REQUIRE(small != NULL);
+    memset(small->data[0], 0x7E, (size_t)small->count);
+
+    CHECK(imProcessBinMorphErode(binary, small, 3, 1) == 0);
+    CHECK(imProcessBinMorphDilate(binary, small, 3, 1) == 0);
+    CHECK(imProcessBinMorphOpen(binary, small, 3, 1) == 0);
+    CHECK(imProcessBinMorphClose(binary, small, 3, 1) == 0);
+    CHECK(imProcessBinMorphOutline(binary, small, 3, 1) == 0);
+    CHECK(all_sentinel(small, 0x7E));
+
+    imImageDestroy(binary);
+    imImageDestroy(small);
+  }
+
+  SUBCASE("but the byte destination the threshold operations want is fine")
+  {
+    /* LocalMaxThreshold writes bytes whatever the source is, so its target
+       type deliberately differs and the guard must not reject it. */
+    imImage* binary = imImageCreate(GW, GH, IM_BINARY, IM_BYTE);
+    REQUIRE(binary != NULL);
+    CHECK(imProcessLocalMaxThreshold(src, binary, 3, 1) != 0);
+    imImageDestroy(binary);
+  }
+
+  imImageDestroy(src);
+}
 #endif /* NDEBUG */

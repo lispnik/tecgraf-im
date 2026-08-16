@@ -9,12 +9,14 @@
 #include <im_util.h>
 
 #include "im_process_counter.h"
+#include "im_process_check.h"
 #include "im_process_loc.h"
 #include "im_process_pnt.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
+#include <assert.h>
 #include <string.h>
 #include <math.h>
 
@@ -87,6 +89,12 @@ static int DoBinMorphConvolve(imbyte *map, imbyte* new_map, int width, int heigh
 
 int imProcessBinMorphConvolve(const imImage* src_image, imImage* dst_image, const imImage *kernel, int hit_white, int iter)
 {
+  /* Guards all six binary morphology entry points, since Erode, Dilate,
+     Open, Close and Outline all build a kernel and come through here. */
+  assert(imCheckSameTypeSize(src_image, dst_image));
+  if (!imCheckSameTypeSize(src_image, dst_image))
+    return 0;
+
   int j, ret = 0, hit_value, miss_value;
   void *tmp = NULL;
   int counter;
