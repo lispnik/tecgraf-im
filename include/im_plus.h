@@ -255,12 +255,24 @@ namespace im
     /* forbidden */
     Image() { im_image = 0; };
 
-    void IncRef() 
+    void IncRef()
     {
       if (!im_image) return;
       int image_ref = GetAttribInteger("_IMAGE_REF");
       image_ref++;
-      SetAttribInteger("_IMAGE_REF", IM_INT, image_ref); 
+      SetAttribInteger("_IMAGE_REF", IM_INT, image_ref);
+    }
+
+    /* The reference count lives in an image attribute, so anything that
+       copies attributes into a fresh image copies the count with them --
+       imImageCopy does, and imImageCreateBased calls imImageCopyAttributes
+       outright. A new wrapper then increments an inherited 1 to 2, its
+       destructor decrements back to 1, and the image is never freed.
+       Whoever mints a fresh handle clears the count before wrapping it. */
+    static void ClearRef(imImage* image)
+    {
+      if (image)
+        imImageSetAttribInteger(image, "_IMAGE_REF", IM_INT, 0);
     }
     bool DecRef() 
     {
@@ -280,6 +292,7 @@ namespace im
     }
     Image(const Image& src_image, int width, int height, int color_space, int data_type) {
       im_image = imImageCreateBased(src_image.im_image, width, height, color_space, data_type);
+      ClearRef(im_image);          /* imImageCreateBased copies the source's */
       if (im_image)
         IncRef();
     }
@@ -451,7 +464,9 @@ namespace im
 
     /* copy utilities */
     Image Duplicate() {
-      return Image(imImageDuplicate(im_image)); }
+      imImage* copy = imImageDuplicate(im_image);
+      ClearRef(copy);              /* imImageCopy brings the count across */
+      return Image(copy); }
     void Copy(Image& dst_image) const {
       imImageCopy(im_image, dst_image.im_image); }
     void CopyAttributes(Image& dst_image) const {

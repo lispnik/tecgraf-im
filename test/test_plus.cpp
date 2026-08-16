@@ -217,6 +217,15 @@ TEST_CASE("plus: copying and duplicating produce equal images")
     CHECK(copy.GetHandle() != source.GetHandle());
     CHECK(source.Match(copy));
 
+    /* The wrapper counts references in an image attribute, and everything
+       that copies attributes into a fresh image copies the count too -- so a
+       duplicate used to start at 1, be incremented to 2 by its new wrapper,
+       and never reach zero again. The image simply leaked.
+       *
+       * Asserted on the count rather than by watching the allocator, because
+       * LeakSanitizer only exists on the Linux jobs; this fails everywhere. */
+    CHECK(copy.GetAttribInteger("_IMAGE_REF") == 1);
+
     for (int i = 0; i < N; i++)
       CHECK(copy.GetValue(0, i / W, i % W) == source.GetValue(0, i / W, i % W));
 
@@ -246,6 +255,22 @@ TEST_CASE("plus: copying and duplicating produce equal images")
       CHECK(target.GetValue(1, i / W, i % W) == 0);
     }
   }
+}
+
+TEST_CASE("plus: an image based on another starts with its own reference count")
+{
+  /* Same defect as Duplicate, by the other route: imImageCreateBased calls
+     imImageCopyAttributes, so this constructor inherited the source's count
+     as well. */
+  im::Image source(W, H, IM_RGB, IM_BYTE);
+  REQUIRE(!source.Failed());
+  CHECK(source.GetAttribInteger("_IMAGE_REF") == 1);
+
+  im::Image based(source, W * 2, H, IM_GRAY, IM_BYTE);
+  REQUIRE(!based.Failed());
+  CHECK(based.Width() == W * 2);
+  CHECK(based.ColorSpace() == IM_GRAY);
+  CHECK(based.GetAttribInteger("_IMAGE_REF") == 1);
 }
 
 TEST_CASE("plus: the reference count keeps a shared image alive")
