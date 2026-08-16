@@ -24,6 +24,15 @@ if(TARGET im_heif)
     target_link_libraries(im_tests PRIVATE im_heif)
 endif()
 
+# Likewise for libim_process (IM_BUILD_PROCESS). Deliberately the plain
+# variant and not im_process_omp: the point operations hand a thread index to
+# their callbacks, so the OpenMP build would make call counts and visit order
+# depend on the host's core count.
+if(TARGET im_process)
+    target_sources(im_tests PRIVATE test_process.cpp)
+    target_link_libraries(im_tests PRIVATE im_process)
+endif()
+
 target_include_directories(im_tests
     PRIVATE ${CMAKE_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR})
