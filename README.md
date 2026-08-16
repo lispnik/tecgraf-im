@@ -46,9 +46,11 @@ This fork modernizes the original [Tecgraf IM library](http://www.tecgraf.puc-ri
   from documented usage, and enforcement of type and size preconditions that
   the headers stated but nothing verified
 
-> **Upgrading?** A handful of these change observable behaviour, `IM_BIT_XOR`
-> most notably. See **[CHANGES.md](CHANGES.md)** before moving an existing
-> application to this fork.
+> **Upgrading?** A handful of these change observable behaviour rather than
+> failing to compile — `IM_BIT_XOR`, which now computes an exclusive or, and
+> `imFileFormat`, which now reports the format a file actually is, are the two
+> most likely to matter. See **[CHANGES.md](CHANGES.md)** before moving an
+> existing application to this fork.
 
 ## Features
 

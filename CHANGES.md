@@ -61,7 +61,9 @@ compression table, so passing either to `imFileSetInfo` overflowed the field
 into `image_count` beside it. The copy is bounded as well now.
 
 This changes the layout of `imFile`. Rebuild anything that includes
-`im_file.h`.
+`im_file.h`. Two callers receive the field by `strcpy` into a local buffer;
+both were checked and the one that was then too small, in `imFileFormat`, was
+widened with it.
 
 ### Point operation callbacks receive correct coordinates
 
@@ -93,6 +95,22 @@ unit. Results on integer images may differ by 1 from an older build.
 The visible consequence was that `imProcessNegative` was not its own inverse:
 `(1.0 - 254.0/255.0) * 255.0` is `0.9999999999999964`, so 254 inverted to 0
 rather than 1. It is an involution now.
+
+### `imFileFormat` returns the format the file actually is
+
+The old-API `imFileFormat` reported the wrong format for every file in the
+library. `FormatNew2Old` compares names with `imStrEqual`, which returns 1 for
+equal, and all nine of its tests were negated — so each branch fired when the
+name did **not** match. A BMP came back as `IM_GIF` and everything else as
+`IM_BMP`.
+
+`IM_BMP` being the value that came out for almost everything is what makes
+this worth reading twice: code that only ever handled BMP saw correct results,
+and code that switched on the return value has been taking the wrong branch
+for every other format. Anything written to compensate must be undone.
+
+`imImageInfo`, `imLoadRGB` and `imLoadMap` were unaffected — they open the
+file rather than consulting this mapping.
 
 ### `im::Image`'s `as_bitmap` constructor selects the loader it names
 
@@ -132,6 +150,15 @@ have depended on.
   image attribute, and everything that copies attributes into a fresh image
   copied the count, so a duplicate started at 1, was incremented to 2, and
   never reached zero.
+- **PCX read past the end of its line buffer on 24-bit images.** The buffer
+  reserves `3*width` bytes of scratch, but the copy back out of it uses the
+  file's line width padded to an even number, times three — so any odd width
+  over-read. A 37-pixel line allocates 224 bytes and the copy wants 227.
+- **PCX copied overlapping ranges with `memcpy`.** Three copies within one
+  line buffer had overlapping source and destination, which is undefined even
+  where the bytes happen to come out right. They use `memmove` now. This is
+  also what was masking the over-read above: AddressSanitizer reports the
+  overlap first and stops.
 - **A codec's refusal is reported as `IM_ERR_COMPRESS`.** The HEIF driver
   mapped libheif's codec-plugin and encoding errors to `IM_ERR_ACCESS`, which
   made a codec limitation indistinguishable from an I/O problem.
@@ -146,6 +173,14 @@ Undefined behaviour that is now defined. Correct callers see no difference.
   `a/0` for any zero sample — a black pixel. That is undefined, and undefined
   in the way that diverges between machines: SIGFPE on x86, a quiet 0 on ARM.
   Both yield 0 now, which is what the ARM builds always produced.
+- **`imConvertMapToRGB` bounds its palette decode tables.** It decodes into
+  three 256-entry arrays indexed by a byte, and both ends were unbounded. A
+  palette longer than 256 filled past the end of them — a stack overflow
+  reachable from a documented public function, since nothing states a limit.
+  An index beyond a short palette read whatever the stack held, which is
+  uninitialised rather than out of bounds, so no sanitizer sees it and the
+  only symptom is output that differs between runs. Such an index now
+  resolves to black; the value matters less than it being the same every time.
 - **Type and size preconditions are enforced.** Fifty-two entry points across
   arithmetic, colour, geometry, convolution, morphology, thresholding, logic
   and tone gamut gained a guard, covering more again through the operations
@@ -172,6 +207,12 @@ Undefined behaviour that is now defined. Correct callers see no difference.
   The true minimum is 1.16, where `heif_brand2_avif` was added; 1.17 is what
   Ubuntu 24.04 ships and therefore what CI exercises. Ubuntu 22.04 carries
   1.12 and builds without the driver.
+- **Windows takes pkg-config from vcpkg rather than Chocolatey.** The
+  Chocolatey package ships no checksum and is fetched over plain HTTP;
+  Chocolatey eventually stopped permitting that by default and broke the build
+  outright. vcpkg was already in use for every other dependency and has a
+  `pkgconf` port, so the second package manager and the unverified download
+  are both gone.
 - **A CI job builds with asserts enabled.** Every other job builds `Release`
   or `RelWithDebInfo`, which define `NDEBUG` and compile out every `assert` in
   the library, so they had never been compiled at all.
