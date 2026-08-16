@@ -22,7 +22,14 @@ env:
   # libheif's codecs are opt-in features: the default pulls in [core,hevc]
   # (libde265 + x265) but no AV1, so AVIF had no encoder or decoder and every
   # test that touches it failed. 'aom' supplies both.
-  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua "libheif[core,hevc,aom]"
+  # pkgconf is the pkg-config implementation the CMakeLists' seven
+  # pkg_check_modules calls go through. It used to come from Chocolatey, which
+  # meant an unverified plain-HTTP download from SourceForge on every run --
+  # the package ships no checksum, and Chocolatey eventually stopped
+  # permitting that by default and broke the job outright. Taking it from
+  # vcpkg, which this job already runs for everything else, removes the
+  # second package manager and the unverified download with it.
+  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua pkgconf "libheif[core,hevc,aom]"
 
 jobs:
   build:
@@ -45,24 +52,6 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      - name: Install pkg-config
-        shell: pwsh
-        run: |
-          # pkgconfiglite for CMakeLists' pkg_check_modules calls, of which
-          # there are seven and two are REQUIRED, so the build cannot proceed
-          # without it.
-          #
-          # --allow-empty-checksums is needed because the package ships none
-          # and Chocolatey stopped permitting that by default for sources it
-          # does not consider secure; pkgconfiglite is fetched over plain HTTP
-          # from SourceForge. This restores what the install did before that
-          # default changed rather than relaxing anything further, but it is a
-          # supply-chain compromise either way: the download is unverified.
-          # Replacing it with vcpkg's own pkgconf, which this job already has
-          # a vcpkg for, would remove the dependency entirely and is the
-          # better fix when someone has time to confirm the .pc files line up.
-          choco install pkgconfiglite -y --no-progress --allow-empty-checksums
 
       - name: Set up vcpkg binary cache directory
         shell: pwsh
@@ -110,10 +99,20 @@ jobs:
         shell: pwsh
         run: |
           $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT "scripts/buildsystems/vcpkg.cmake"
+
+          # Point CMake at vcpkg's pkgconf explicitly rather than relying on
+          # it being found by name. FindPkgConfig only learned to look for
+          # "pkgconf" as well as "pkg-config" in CMake 3.22, and this project
+          # declares 3.20, so naming the path keeps the two consistent
+          # whatever the runner ships.
+          $pkgconf = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows/tools/pkgconf/pkgconf.exe"
+          if (-not (Test-Path $pkgconf)) { throw "pkgconf not found at $pkgconf" }
+
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DIM_BUILD_HEIF=ON `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DPKG_CONFIG_EXECUTABLE="$pkgconf" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
