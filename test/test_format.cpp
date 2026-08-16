@@ -534,8 +534,8 @@ TEST_CASE("format: a file opened without a hint reports its own format")
     imFile* file = imFileOpen(path.c_str(), &error);
     REQUIRE_MESSAGE(file != NULL, "open failed, error " << error);
 
-    char format[16] = { 0 };
-    char compression[16] = { 0 };
+    char format[32] = { 0 };
+    char compression[32] = { 0 };
     int image_count = 0;
     imFileGetInfo(file, format, compression, &image_count);
 
@@ -544,6 +544,48 @@ TEST_CASE("format: a file opened without a hint reports its own format")
     CHECK(strlen(compression) > 0);
 
     imFileClose(file);
+  }
+}
+
+TEST_CASE("format: every advertised compression name survives being set")
+{
+  /* imFileSetInfo used to strcpy into a char[10]. The TIFF driver advertises
+     "ADOBEDEFLATE" (12 characters) and "THUNDERSCAN" (11) in its own
+     compression table, so passing either -- a documented value, obtained from
+     the library itself -- overflowed the field into image_count beside it.
+     glibc's _FORTIFY_SOURCE aborts on it; on macOS it silently corrupted the
+     struct, which is why only the Linux jobs caught it.
+
+     Asserted as a round trip rather than by watching for a crash, so it fails
+     on every platform if the buffer is ever shrunk again: a name that comes
+     back truncated is the same defect one step earlier. */
+  const char* names[] = { "NONE", "LZW", "DEFLATE", "ADOBEDEFLATE",
+                          "THUNDERSCAN", "CCITTFAX4", "PIXARLOG" };
+
+  for (size_t c = 0; c < sizeof(names)/sizeof(names[0]); c++)
+  {
+    CAPTURE(names[c]);
+
+    imImage* src = imImageCreate(W, H, IM_RGB, IM_BYTE);
+    REQUIRE(src != NULL);
+    fill_pattern(src);
+
+    std::string path = scratch("compname.tif");
+    int error = IM_ERR_NONE;
+    imFile* out = imFileNew(path.c_str(), "TIFF", &error);
+    REQUIRE_MESSAGE(out != NULL, "open failed, error " << error);
+
+    imFileSetInfo(out, names[c]);
+
+    /* Straight back out of the same handle: whether the codec is available
+       is a separate question from whether the name was stored intact. */
+    char stored[32] = { 0 };
+    imFileGetInfo(out, NULL, stored, NULL);
+    CHECK(strcmp(stored, names[c]) == 0);
+
+    imFileSaveImage(out, src);
+    imFileClose(out);
+    imImageDestroy(src);
   }
 }
 

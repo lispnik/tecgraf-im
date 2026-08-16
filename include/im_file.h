@@ -56,7 +56,13 @@ struct _imFile
   /* these must be filled by the driver when reading,
      and given by the user when writing. */
 
-  char compression[10];
+  /* Long enough for every name the drivers advertise. It was 10, which is
+     three bytes short of "ADOBEDEFLATE" and one short of "THUNDERSCAN" --
+     both of them entries in the TIFF driver's own compression table, so
+     passing either to imFileSetInfo overflowed this buffer into the fields
+     below. glibc's _FORTIFY_SOURCE catches it and aborts; elsewhere it just
+     corrupts image_count. 16 leaves room and keeps the struct's alignment. */
+  char compression[16];
   int image_count,
       image_index,
       width,           

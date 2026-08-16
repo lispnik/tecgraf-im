@@ -465,7 +465,14 @@ void imFileSetInfo(imFile* ifile, const char* compression)
   if (!compression)
     ifile->compression[0] = 0;
   else
-    strcpy(ifile->compression, compression);
+  {
+    /* Bounded, so a caller passing a name longer than any driver advertises
+       truncates instead of overflowing. A truncated name then fails to match
+       in the driver's compression table and it falls back to its default,
+       which is the same outcome as an unrecognised name. */
+    strncpy(ifile->compression, compression, sizeof(ifile->compression) - 1);
+    ifile->compression[sizeof(ifile->compression) - 1] = 0;
+  }
 }
 
 void imFileSetPalette(imFile* ifile, long* palette, int palette_count)
