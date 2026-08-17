@@ -239,6 +239,12 @@ const char* imImageGetAttribString(const imImage* image, const char* attrib);
 /** Returns a list of the attribute names. \n
  * "attrib" must contain room enough for "attrib_count" names. Use "attrib=NULL" to return only the count.
  *
+ * The array receives pointers to the names held inside the attribute table,
+ * not copies, so do not free them. They are also only valid while those
+ * entries exist: setting or removing any attribute, or destroying the owner,
+ * can free a name a previous call handed out. Copy anything you need to keep
+ * across a change to the attributes.
+ *
  * \verbatim image:GetAttributeList() -> data: table of strings [in Lua 5] \endverbatim
  * \ingroup imgclass */
 void imImageGetAttributeList(const imImage* image, char** attrib, int *attrib_count);

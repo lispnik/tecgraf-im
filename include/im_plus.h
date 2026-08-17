@@ -540,6 +540,10 @@ namespace im
     const char* GetAttribString(const char* attrib) const {
       return imImageGetAttribString(im_image, attrib); }
 
+    /* Lends the names rather than copying them: do not free them, and treat
+       them as valid only until the attributes change. See the note on
+       imImageGetAttributeList. Pass NULL for attrib to learn the count
+       first. */
     void GetAttributeList(char** attrib, int &attrib_count) const {
       imImageGetAttributeList(im_image, attrib, &attrib_count); }
 
