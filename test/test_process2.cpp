@@ -8,6 +8,7 @@
  *   src/process/im_histogram.cpp   the three histogram entry points
  *   src/process/im_statistics.cpp  imStats, colour counting, RMS error
  *   src/process/im_tonegamut.cpp   negative
+ *   src/process/im_kernel.cpp      the generated kernels and their orientation
  *
  * Geometric transforms are pure permutations, so the assertions are exact
  * index arithmetic rather than tolerances -- a transposed axis or an
@@ -27,8 +28,11 @@
 #include <im_image.h>
 #include <im_process.h>
 
+#include <im_kernel.h>
+
 #include <math.h>
 #include <string.h>
+#include <string>
 
 namespace {
 
@@ -1185,3 +1189,178 @@ TEST_CASE("guards: the point operations check the geometry they were given")
   imImageDestroy(small);
 }
 #endif /* NDEBUG */
+
+
+/* ================================================================== *
+ * src/process/im_kernel.cpp -- the generated kernels, and which way
+ * up they are.
+ *
+ * The matrices in im_kernel.h are pictures of the kernel, first row
+ * topmost, while the arrays in im_kernel.cpp are in memory order,
+ * which is bottom-up. So each picture is the vertical mirror of the
+ * literal beside it, and the two agree precisely because of that.
+ *
+ * Sixteen of the twenty-one are symmetric about the horizontal axis,
+ * so nothing distinguishes the two readings for them. Five are not,
+ * and for those the reading decides the sign of the gradient. That is
+ * an easy thing to get backwards -- one of the five was documented in
+ * memory order rather than as a picture, which read as pictured
+ * inverted its gradient, and anyone reconciling the header against
+ * the source by flipping the array instead would silently invert the
+ * other four.
+ *
+ * These cases assert the direction as behaviour, from the response to
+ * a known ramp, so the header's claim about it cannot drift again
+ * without a failure. They restate none of the weights: a case that
+ * compared the array against the same numbers written a second time
+ * would have passed throughout.
+ * ================================================================== */
+
+namespace {
+
+/* A gray ramp. `axis` picks which way it climbs, in the terms a reader of the
+   header would use: brighter upward means brighter toward the top of the
+   picture, which is the HIGH end of the memory index. */
+enum RampAxis { BRIGHTER_UPWARD, BRIGHTER_RIGHTWARD };
+
+imImage* ramp(RampAxis axis)
+{
+  const int RW = 16, RH = 12;
+  imImage* image = imImageCreate(RW, RH, IM_GRAY, IM_FLOAT);
+  REQUIRE(image != NULL);
+  for (int y = 0; y < RH; y++)
+    for (int x = 0; x < RW; x++)
+      ((float*)image->data[0])[y*RW + x] =
+        (float)(10 * (axis == BRIGHTER_UPWARD? y: x));
+  return image;
+}
+
+/* The response well away from the border, where the mirrored edge cannot
+   reach. Float throughout: a byte destination would clip every negative
+   response to zero and the sign is the whole point. */
+double response(imImage* kernel, RampAxis axis)
+{
+  imImage* src = ramp(axis);
+  imImage* dst = imImageCreateBased(src, -1, -1, -1, -1);
+  REQUIRE(dst != NULL);
+  REQUIRE(imProcessConvolve(src, dst, kernel) != 0);
+  double value = ((float*)dst->data[0])[6*src->width + 8];
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  return value;
+}
+
+int kernel_is_y_symmetric(const imImage* kernel)
+{
+  const int* data = (const int*)kernel->data[0];
+  for (int y = 0; y < kernel->height/2; y++)
+    for (int x = 0; x < kernel->width; x++)
+      if (data[y*kernel->width + x] !=
+          data[(kernel->height - 1 - y)*kernel->width + x])
+        return 0;
+  return 1;
+}
+
+} /* namespace */
+
+TEST_CASE("kernel: the asymmetric generators point the way the header says")
+{
+  SUBCASE("Sobel, Prewitt and Kirsh are upward gradients")
+  {
+    /* All three are pictured with their positive row on top and their negative
+       row at the bottom, so each answers "how much brighter is it above than
+       below" and none of them responds to a horizontal ramp at all. */
+    struct { const char* name; imImage* (*make)(void); } upward[] = {
+      { "Sobel",   imKernelSobel   },
+      { "Prewitt", imKernelPrewitt },
+      { "Kirsh",   imKernelKirsh   },
+    };
+
+    for (int i = 0; i < 3; i++)
+    {
+      CAPTURE(std::string(upward[i].name));
+      imImage* kernel = upward[i].make();
+      REQUIRE(kernel != NULL);
+      CHECK(kernel_is_y_symmetric(kernel) == 0);   /* or the case proves nothing */
+      CHECK(response(kernel, BRIGHTER_UPWARD) > 0.0);
+      CHECK(response(kernel, BRIGHTER_RIGHTWARD) == 0.0);
+      imImageDestroy(kernel);
+    }
+  }
+
+  SUBCASE("Gradian3x3 is a pixel minus the one below it")
+  {
+    /* The one whose picture was upside down. Its weights are +1 at the centre
+       and -1 one step away, so on a ramp of 10 per row the response is exactly
+       the step -- which also pins the sign, since the inverted reading gives
+       -10 rather than a different magnitude. */
+    imImage* kernel = imKernelGradian3x3();
+    REQUIRE(kernel != NULL);
+    CHECK(kernel_is_y_symmetric(kernel) == 0);
+    CHECK(response(kernel, BRIGHTER_UPWARD) == doctest::Approx(10.0));
+    CHECK(response(kernel, BRIGHTER_RIGHTWARD) == 0.0);
+    imImageDestroy(kernel);
+  }
+
+  SUBCASE("Gradian7x7 measures the other axis")
+  {
+    /* Not a bug, but not guessable from the name either: the 7x7 of the pair
+       is a horizontal gradient where the 3x3 is a vertical one. Asserted so
+       that the note saying so in the header is held to something. */
+    imImage* kernel = imKernelGradian7x7();
+    REQUIRE(kernel != NULL);
+    CHECK(response(kernel, BRIGHTER_UPWARD) == 0.0);
+    CHECK(response(kernel, BRIGHTER_RIGHTWARD) > 0.0);
+    imImageDestroy(kernel);
+  }
+
+  SUBCASE("Sculpt is the bottom-right neighbour minus the top-left")
+  {
+    /* Diagonal, so it responds to both ramps -- and with opposite signs, which
+       is what says it is that diagonal and not the other one. */
+    imImage* kernel = imKernelSculpt();
+    REQUIRE(kernel != NULL);
+    CHECK(kernel_is_y_symmetric(kernel) == 0);
+    CHECK(response(kernel, BRIGHTER_UPWARD) < 0.0);
+    CHECK(response(kernel, BRIGHTER_RIGHTWARD) > 0.0);
+    imImageDestroy(kernel);
+  }
+}
+
+TEST_CASE("kernel: the rest are symmetric, so their orientation cannot matter")
+{
+  /* The claim the header makes about the other sixteen. If a future edit made
+     one of them asymmetric without saying which way up it is meant to be read,
+     this is what notices. */
+  struct { const char* name; imImage* (*make)(void); } symmetric[] = {
+    { "Mean3x3",          imKernelMean3x3          },
+    { "Mean5x5",          imKernelMean5x5          },
+    { "Mean7x7",          imKernelMean7x7          },
+    { "CircularMean5x5",  imKernelCircularMean5x5  },
+    { "CircularMean7x7",  imKernelCircularMean7x7  },
+    { "Gaussian3x3",      imKernelGaussian3x3      },
+    { "Gaussian5x5",      imKernelGaussian5x5      },
+    { "Barlett5x5",       imKernelBarlett5x5       },
+    { "TopHat5x5",        imKernelTopHat5x5        },
+    { "TopHat7x7",        imKernelTopHat7x7        },
+    { "Enhance",          imKernelEnhance          },
+    { "Laplacian4",       imKernelLaplacian4       },
+    { "Laplacian8",       imKernelLaplacian8       },
+    { "Laplacian5x5",     imKernelLaplacian5x5     },
+    { "Laplacian7x7",     imKernelLaplacian7x7     },
+    { "Gradian7x7",       imKernelGradian7x7       },
+  };
+  const int count = (int)(sizeof(symmetric)/sizeof(symmetric[0]));
+  CHECK(count == 16);
+
+  for (int i = 0; i < count; i++)
+  {
+    CAPTURE(std::string(symmetric[i].name));
+    imImage* kernel = symmetric[i].make();
+    REQUIRE(kernel != NULL);
+    CHECK(kernel->data_type == IM_INT);
+    CHECK(imColorModeSpace(kernel->color_space) == IM_GRAY);
+    CHECK(kernel_is_y_symmetric(kernel) == 1);
+    imImageDestroy(kernel);
+  }
+}

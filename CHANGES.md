@@ -208,6 +208,32 @@ Undefined behaviour that is now defined. Correct callers see no difference.
 
 ---
 
+## Documentation
+
+Corrections where the code was right and the header was not, so nothing built
+against this library changes behaviour.
+
+- **`imKernelGradian3x3` was pictured upside down.** The matrices in
+  `im_kernel.h` are pictures of each kernel, first row topmost, while the
+  arrays in `im_kernel.cpp` are in memory order, which is bottom-up — so a
+  picture is the vertical mirror of the literal beside it. Sixteen of the
+  twenty-one kernels are symmetric about the horizontal axis and cannot tell
+  the difference; of the five that can, four followed the convention and
+  `imKernelGradian3x3` did not, which read as a picture inverted the sign of
+  the gradient it computes. The convention is now stated where the group is
+  introduced, since the trap is that reconciling the header against the source
+  by flipping the array instead would silently invert the other four.
+  `imKernelGradian3x3` also measures the vertical difference where
+  `imKernelGradian7x7` measures the horizontal one; that is unchanged, and now
+  said out loud.
+- **The attribute and format list functions lend their strings.** `imFormatList`,
+  `imFormatCompressions`, `imFileGetAttributeList` and
+  `imImageGetAttributeList` fill the caller's array with pointers the library
+  owns, not copies, and each has its own rule for how long they stay valid.
+  Freeing them corrupts the heap; all four now say so.
+
+---
+
 ## Build
 
 - **libheif 1.17 or newer** is required for the optional HEIF/AVIF driver.

@@ -17,6 +17,20 @@ extern "C" {
  * \par
  * Creates several known kernels
  * \par
+ * Each matrix below is written the way the kernel looks, first row topmost.
+ * That is not the order the values sit in memory: imImage stores rows
+ * bottom-up, so imKernelSobel() fills data[0] with {-1,-2,-1, 0,0,0, 1,2,1},
+ * the reverse of its picture. Both describe the same kernel, and for the
+ * sixteen of these that are symmetric about the horizontal axis the
+ * distinction cannot be observed at all. For the five that are not it decides
+ * which way the gradient points, so read as pictured: imKernelSobel(),
+ * imKernelPrewitt() and imKernelKirsh() respond positively where the image
+ * grows brighter upward, imKernelGradian3x3() is a pixel minus the one below
+ * it, and imKernelSculpt() is the bottom-right neighbour minus the top-left.
+ * \par
+ * The convolution itself does not rotate the kernel -- it correlates -- which
+ * is why the orientation is worth stating rather than leaving to the reader.
+ * \par
  * See \ref im_kernel.h
  * \ingroup convolve */
 
@@ -114,10 +128,14 @@ imImage* imKernelLaplacian7x7(void);
 /** Creates a kernel with the following values:
  *
 \verbatim
-  0 -1 0  
-  0  1 0  
-  0  0 0  
+  0  0 0
+  0  1 0
+  0 -1 0
 \endverbatim
+ *
+ * A pixel minus the one below it. Note that this measures the vertical
+ * difference where imKernelGradian7x7() measures the horizontal one, so the
+ * two are not one operator at two sizes despite the shared name.
  *
  * \verbatim im.KernelGradian3x3() -> kernel: imImage [in Lua 5] \endverbatim
  * \ingroup kernel */
