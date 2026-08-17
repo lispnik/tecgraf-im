@@ -11,11 +11,14 @@
  * How closely the two agree is not uniform, and the cases below say which
  * they are relying on rather than applying one blanket tolerance:
  *
- *   minimum, maximum, open, close, range,  exact over the whole image
- *   binary dilate, 2x nearest resize,
- *   Otsu threshold
- *   median 3x3 and 5x5, binary erode       exact in the interior only
- *   mean 3x3, RGB to gray                  within 1
+ *   minimum and maximum at 3x3 and 5x5,    exact over the whole image
+ *   open, close, range, binary dilate,
+ *   2x nearest resize, Otsu threshold
+ *   median 3x3, 5x5 and 7x7,               exact in the interior only
+ *     binary erode
+ *   mean 3x3, RGB to gray, convolution     within 1, and never above
+ *     with an explicit 3x3 or 5x5 kernel
+ *   the separable convolution              within 2, and never above
  *
  * The borders are where a median disagrees because the two libraries pad the
  * window differently past the edge -- a genuine ambiguity in the operation,
@@ -23,6 +26,12 @@
  * That min and max agree everywhere, borders included, is worth more than it
  * looks: it means the two libraries also pad identically, so the median
  * difference really is confined to how the sorted window is filled.
+ *
+ * "Never above" is asserted separately from the magnitude wherever the two
+ * differ only by rounding. IM truncates the divided sum and ImageMagick
+ * rounds it, so the difference has a known sign; a symmetric tolerance of one
+ * level would pass an off-by-one in the other direction, which is the thing
+ * these cases exist to catch.
  */
 
 #include "doctest/doctest.h"
@@ -72,6 +81,42 @@ int worst_difference(const imImage* a, const imImage* b, int margin)
     }
   }
   return worst;
+}
+
+/* The two directions kept apart. The convolution cases need this rather than
+   worst_difference: IM truncates the divided sum where ImageMagick rounds it,
+   so the reference should never be the lower of the two. A symmetric
+   tolerance of one level would pass that, and would equally pass a genuine
+   off-by-one in the other direction -- which is the thing being looked for. */
+struct Difference { int above; int below; };
+
+Difference signed_difference(const imImage* a, const imImage* b, int margin)
+{
+  REQUIRE(a->width == b->width);
+  REQUIRE(a->height == b->height);
+
+  Difference worst = { 0, 0 };
+  for (int y = margin; y < a->height - margin; y++)
+  {
+    for (int x = margin; x < a->width - margin; x++)
+    {
+      int i = y * a->width + x;
+      int diff = (int)((imbyte*)a->data[0])[i] - (int)((imbyte*)b->data[0])[i];
+      if (diff > worst.above) worst.above = diff;
+      if (-diff > worst.below) worst.below = -diff;
+    }
+  }
+  return worst;
+}
+
+/* Row-major weights into a kernel image, the way a caller writes one out. */
+imImage* int_kernel(int size, const int* weights)
+{
+  imImage* kernel = imImageCreate(size, size, IM_GRAY, IM_INT);
+  REQUIRE(kernel != NULL);
+  for (int i = 0; i < size * size; i++)
+    ((int*)kernel->data[0])[i] = weights[i];
+  return kernel;
 }
 
 /* A filter that returned its input unchanged, or a constant, would satisfy a
@@ -167,6 +212,37 @@ TEST_CASE("golden: the minimum and maximum filters match exactly, borders includ
     check_actually_filtered(dst, src);
     imImageDestroy(want);
   }
+  SUBCASE("RankMinConvolve at 5x5")
+  {
+    /* Still exact at the larger size, borders included, which is the part
+       worth having: it says the two libraries agree about how the window is
+       filled past the edge two steps out and not merely one. The median cases
+       below rely on that -- it is what confines their border disagreement to
+       the choice of element rather than the choice of neighbourhood. */
+    imImage* want = load_golden("min5.pgm");
+    REQUIRE(imProcessRankMinConvolve(src, dst, 5) != 0);
+    CHECK(worst_difference(dst, want, 0) == 0);
+    check_actually_filtered(dst, src);
+    imImageDestroy(want);
+  }
+  SUBCASE("RankMaxConvolve at 5x5")
+  {
+    imImage* want = load_golden("max5.pgm");
+    REQUIRE(imProcessRankMaxConvolve(src, dst, 5) != 0);
+    CHECK(worst_difference(dst, want, 0) == 0);
+    check_actually_filtered(dst, src);
+    imImageDestroy(want);
+  }
+  SUBCASE("the larger window is not the smaller one")
+  {
+    /* A kernel size that was read but ignored would leave every case above
+       passing against its own reference. */
+    imImage* three = imImageCreateBased(src, -1, -1, -1, -1);
+    REQUIRE(imProcessRankMinConvolve(src, three, 3) != 0);
+    REQUIRE(imProcessRankMinConvolve(src, dst, 5) != 0);
+    CHECK(worst_difference(dst, three, 0) > 0);
+    imImageDestroy(three);
+  }
   SUBCASE("RangeConvolve is the difference of the two")
   {
     imImage* want = load_golden("range3.pgm");
@@ -260,6 +336,19 @@ TEST_CASE("golden: the median filter matches exactly away from the border")
     imImageDestroy(want);
   }
 
+  SUBCASE("7x7")
+  {
+    /* 49 samples per window. The interior still matches to the sample, so
+       whatever the selection algorithm does it is not size-dependent -- a
+       partial sort with an off-by-one in the pivot would have shown up here
+       and not at 3x3. */
+    imImage* want = load_golden("median7.pgm");
+    REQUIRE(imProcessMedianConvolve(src, dst, 7) != 0);
+    CHECK(worst_difference(dst, want, 3) == 0);
+    check_actually_filtered(dst, src);
+    imImageDestroy(want);
+  }
+
   SUBCASE("and it is not simply the minimum or the maximum")
   {
     /* The three rank filters share their window-gathering code, so a median
@@ -301,6 +390,166 @@ TEST_CASE("golden: the mean filter matches within the rounding difference")
   imImageDestroy(src);
   imImageDestroy(dst);
   imImageDestroy(want);
+}
+
+TEST_CASE("golden: convolution with a kernel the caller writes out")
+{
+  /* imProcessConvolve is the general case that most of im_convolve.cpp is a
+     special case of, so it is the one worth holding to an outside reference
+     rather than only the named filters built on it.
+
+     It is also the one whose reference was hardest to produce, and the note in
+     fixtures/golden/regenerate.sh is part of these cases rather than
+     background: three separate conventions have to be matched before the two
+     libraries agree at all, and getting any of them wrong produces a
+     disagreement of tens of levels that reads convincingly as a defect in
+     this library. Nothing below is a bug that was found; all three were
+     mistakes in the reference. */
+  imImage* src = load_golden("src.pgm");
+  imImage* dst = imImageCreateBased(src, -1, -1, -1, -1);
+  REQUIRE(dst != NULL);
+
+  SUBCASE("a single weight selects one neighbour")
+  {
+    /* Orientation pinned without the fixture, since this is the convention the
+       reference had to be flipped to match and a case that only compared
+       against the flipped reference would not say which way round it is. With
+       one non-zero weight the output is a shift of the input, and the
+       direction of the shift is the whole question: a weight above the centre
+       of the kernel reaches the sample above, which makes this correlation
+       rather than convolution. The kernel sums to one, so no scaling gets in
+       the way of reading that off. */
+    const int taps[4][2] = { {-1,-1}, {1,1}, {0,1}, {-1,0} };  /* dy, dx */
+
+    for (int t = 0; t < 4; t++)
+    {
+      int dy = taps[t][0], dx = taps[t][1];
+      int weights[9] = { 0,0,0, 0,0,0, 0,0,0 };
+      weights[(dy + 1)*3 + (dx + 1)] = 1;
+      imImage* kernel = int_kernel(3, weights);
+
+      REQUIRE(imProcessConvolve(src, dst, kernel) != 0);
+
+      CAPTURE(dy);
+      CAPTURE(dx);
+      int mismatches = 0;
+      for (int y = 1; y < src->height - 1; y++)
+        for (int x = 1; x < src->width - 1; x++)
+          if (((imbyte*)dst->data[0])[y*src->width + x] !=
+              ((imbyte*)src->data[0])[(y + dy)*src->width + (x + dx)])
+            mismatches++;
+      CHECK(mismatches == 0);
+
+      imImageDestroy(kernel);
+    }
+  }
+
+  SUBCASE("an asymmetric 3x3 kernel")
+  {
+    /* Asymmetric deliberately. A symmetric kernel gives the same answer
+       whichever of the two conventions above an implementation follows, so it
+       could not have caught the orientation being wrong -- and the reference
+       for this one is written with its rows reversed for exactly that reason. */
+    const int weights[9] = { 1,2,3, 4,5,6, 7,8,9 };
+    imImage* kernel = int_kernel(3, weights);
+    imImage* want = load_golden("conv_asym3.pgm");
+
+    REQUIRE(imProcessConvolve(src, dst, kernel) != 0);
+
+    /* Whole image, borders included: the mirrored border is not an ambiguity
+       here the way it is for the median, because both libraries were asked for
+       the same rule and they follow it identically. */
+    Difference d = signed_difference(dst, want, 0);
+    CHECK(d.above == 0);       /* truncating cannot land above rounding */
+    CHECK(d.below <= 1);
+    check_actually_filtered(dst, src);
+
+    imImageDestroy(kernel);
+    imImageDestroy(want);
+  }
+
+  SUBCASE("a symmetric 5x5 kernel, and the separable form of the same one")
+  {
+    const int row[5] = { 1, 4, 6, 4, 1 };
+    int weights[25];
+    for (int y = 0; y < 5; y++)
+      for (int x = 0; x < 5; x++)
+        weights[y*5 + x] = row[y] * row[x];
+
+    imImage* kernel = int_kernel(5, weights);
+    imImage* want = load_golden("gauss5.pgm");
+
+    REQUIRE(imProcessConvolve(src, dst, kernel) != 0);
+    Difference d = signed_difference(dst, want, 0);
+    CHECK(d.above == 0);
+    CHECK(d.below <= 1);
+    check_actually_filtered(dst, src);
+
+    /* imProcessConvolveSep reads only the first row and the first column and
+       runs two one-dimensional passes. For a kernel that is the outer product
+       of the two, that is the same filter -- but not the same arithmetic: the
+       first pass divides and truncates before the second one does, so it comes
+       out up to one level lower again. Both facts are asserted, because "the
+       same to within two levels" on its own would also be satisfied by a
+       second pass that was quietly wrong. */
+    imImage* separable = imImageCreate(5, 5, IM_GRAY, IM_INT);
+    REQUIRE(separable != NULL);
+    for (int i = 0; i < 25; i++) ((int*)separable->data[0])[i] = 0;
+    for (int i = 0; i < 5; i++)
+    {
+      ((int*)separable->data[0])[i] = row[i];       /* first line */
+      ((int*)separable->data[0])[i*5] = row[i];     /* first column */
+    }
+
+    imImage* sep_dst = imImageCreateBased(src, -1, -1, -1, -1);
+    REQUIRE(sep_dst != NULL);
+    REQUIRE(imProcessConvolveSep(src, sep_dst, separable) != 0);
+
+    Difference ds = signed_difference(sep_dst, want, 0);
+    CHECK(ds.above == 0);
+    CHECK(ds.below <= 2);
+
+    Difference against_full = signed_difference(sep_dst, dst, 0);
+    CHECK(against_full.above == 0);
+    CHECK(against_full.below <= 1);
+
+    imImageDestroy(separable);
+    imImageDestroy(sep_dst);
+    imImageDestroy(kernel);
+    imImageDestroy(want);
+  }
+
+  SUBCASE("the kernel sum is what the result is divided by")
+  {
+    /* Scaling every weight by the same factor scales the sum by it too, so a
+       correctly normalized convolution is very nearly unchanged. This is the
+       part of the reference's "convolve:scale=!" that is a claim about this
+       library rather than about ImageMagick, and it needs no fixture. */
+    const int base[9] = { 1,2,3, 4,5,6, 7,8,9 };
+    int scaled[9];
+    for (int i = 0; i < 9; i++) scaled[i] = base[i] * 7;
+
+    imImage* k1 = int_kernel(3, base);
+    imImage* k2 = int_kernel(3, scaled);
+    imImage* other = imImageCreateBased(src, -1, -1, -1, -1);
+    REQUIRE(other != NULL);
+
+    REQUIRE(imProcessConvolve(src, dst, k1) != 0);
+    REQUIRE(imProcessConvolve(src, other, k2) != 0);
+
+    /* Not exactly equal: the two truncate different quotients of the same
+       ratio, so one level either way. */
+    Difference d = signed_difference(other, dst, 0);
+    CHECK(d.above <= 1);
+    CHECK(d.below <= 1);
+
+    imImageDestroy(k1);
+    imImageDestroy(k2);
+    imImageDestroy(other);
+  }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
 }
 
 

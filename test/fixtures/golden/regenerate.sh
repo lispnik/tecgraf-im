@@ -15,16 +15,20 @@
 #
 # Agreement observed when these were made, on the 32x24 source:
 #
-#   min, max, open, close, range   exact over the whole image, borders included
+#   min and max at 3x3 and 5x5,     exact over the whole image, borders included
+#     open, close, range
 #   binary dilate, nearest-neighbour
 #     resize to an integer multiple,
 #     Otsu threshold                exact over the whole image
-#   median 3x3 and 5x5, binary
-#     erode                         exact in the interior; the borders differ
-#                                   because the two libraries pad differently
+#   median 3x3, 5x5 and 7x7,        exact in the interior; the borders differ
+#     binary erode                  because the two libraries pad differently
 #   mean 3x3, RGB to gray,          within 1, which is rounding alone
 #     RGB to YCbCr and to XYZ,
-#     the L of RGB to Lab
+#     the L of RGB to Lab,
+#     convolution with an explicit
+#     kernel at 3x3 and 5x5
+#   the separable convolution       within 2: the same rounding, plus the
+#                                   intermediate pass truncating once more
 #
 # The a and b of Lab need a scale applied before they can be compared. IM
 # computes a = 2.5*(fX-fY) and packs -0.5..0.5 into a byte; the standard, and
@@ -84,11 +88,58 @@ PY
 
 magick src.pgm -statistic Median  3x3 -depth 8 median3.pgm
 magick src.pgm -statistic Median  5x5 -depth 8 median5.pgm
+magick src.pgm -statistic Median  7x7 -depth 8 median7.pgm
 magick src.pgm -statistic Minimum 3x3 -depth 8 min3.pgm
 magick src.pgm -statistic Maximum 3x3 -depth 8 max3.pgm
+magick src.pgm -statistic Minimum 5x5 -depth 8 min5.pgm
+magick src.pgm -statistic Maximum 5x5 -depth 8 max5.pgm
 magick src.pgm -statistic Mean    3x3 -depth 8 mean3.pgm
 magick src.pgm -morphology Open  Square:1 -depth 8 open3.pgm
 magick src.pgm -morphology Close Square:1 -depth 8 close3.pgm
+
+# Convolution with a kernel the caller writes out, which is the general case
+# every named filter in im_convolve.cpp is a special case of. Three things
+# about the reference here are not guessable and were each established by
+# experiment before the assertions were written:
+#
+# 1. ImageMagick does not normalize a kernel given as a literal string --
+#    without "-define convolve:scale=!" this kernel sums to 45 and every
+#    output pixel saturates to white. imProcessConvolve always divides by the
+#    kernel sum (iKernelTotal, treating a sum of zero as one), so normalizing
+#    is what makes the two comparable rather than a stylistic choice.
+#
+# 2. Correlate, not Convolve, is the matching operator -- and the kernel below
+#    is written with its ROWS REVERSED from the one the test builds. Both
+#    follow from imImage storing its rows bottom-up. IM's inner loop applies
+#    the kernel without rotating it (correlation) in memory order, so read in
+#    file order, which is what ImageMagick works in, the kernel arrives upside
+#    down. Getting either half of this wrong looks convincingly like a defect:
+#    against -morphology Convolve the two disagree by 33 levels in the
+#    interior, and against an unflipped Correlate by 47.
+#
+# 3. "-virtual-pixel mirror" is needed and the default is not enough. It makes
+#    no difference at 3x3 -- edge replication and mirroring pick the same
+#    pixel one step out -- so a 3x3 case alone would suggest the setting is
+#    unnecessary, and the 5x5 case below then disagrees at the border by 7.
+#
+# With all three right the agreement is within 1 everywhere, borders included,
+# and IM is never the higher of the two: it truncates the divided sum where
+# ImageMagick rounds it. The tests assert that direction as well as the
+# magnitude, since a tolerance of 1 in both directions would also admit a
+# genuine off-by-one.
+#
+# The 3x3 kernel is deliberately asymmetric. A symmetric one cannot tell
+# correlation from convolution, so it would have hidden point 2 entirely.
+magick src.pgm -virtual-pixel mirror -define convolve:scale='!' \
+  -morphology Correlate '3x3: 7,8,9  4,5,6  1,2,3' -depth 8 conv_asym3.pgm
+
+# A 5x5 binomial, symmetric, so it exercises the larger kernel without
+# depending on the orientation above. Used twice by the tests: once against
+# imProcessConvolve with the full 25 weights, once against imProcessConvolveSep
+# given the same weights as a row and a column.
+magick src.pgm -virtual-pixel mirror -define convolve:scale='!' \
+  -morphology Convolve '5x5: 1,4,6,4,1  4,16,24,16,4  6,24,36,24,6  4,16,24,16,4  1,4,6,4,1' \
+  -depth 8 gauss5.pgm
 
 # Nearest neighbour to exactly twice the size, where the mapping is
 # unambiguous. See the note above about shrinking.
