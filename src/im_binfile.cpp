@@ -132,11 +132,18 @@ unsigned long imBinMemoryFile::WriteBuf(void* pValues, unsigned long pSize)
   this->Error = 0;
   if (lOffset + pSize > this->BufferSize)
   {
-    if (this->Reallocate != 0.0)
+    if (this->Reallocate > 0.0)
     {
+      /* the step has to be at least one byte or this never terminates: the
+         factor is applied to the ORIGINAL size, which the loop does not
+         change, so any factor below 1/BufferSize truncates the step to zero
+         and spins forever. A step of one lands on exactly the size needed. */
+      unsigned long lStep = (unsigned long)(this->Reallocate*(float)this->BufferSize);
+      if (lStep == 0) lStep = 1;
+
       unsigned long nSize = this->BufferSize;
       while (lOffset + pSize > nSize)
-        nSize += (unsigned long)(this->Reallocate*(float)this->BufferSize);
+        nSize += lStep;
 
       this->Buffer = (unsigned char*)realloc(this->Buffer, nSize);
 
@@ -495,7 +502,14 @@ int imBinFileSetCurrentModule(int pModule)
 {
   int old_module = iBinFileModuleCurrent;
 
-  if (pModule >= iBinFileModuleCount)
+  /* the lower bound matters as much as the upper one: this index is used to
+     pick a function pointer out of iBinFileModule, so a negative module was
+     stored and then called through on the next Open or New.
+
+     No assert beside this one, unlike most of the guards in this library:
+     validating the module is this function's job, not the caller's -- it is
+     documented to return -1 for one it will not accept. */
+  if (pModule < 0 || pModule >= iBinFileModuleCount)
     return -1;
 
   iBinFileModuleCurrent = pModule;
@@ -718,17 +732,23 @@ int imBinFileReadLine(imBinFile* handle, char* comment, int *size)
     *size = 0;
   }
 
-  while (byte_value != '\n' && byte_value != '\r')
+  /* read first, then store: the other order stored the initial byte_value,
+     so every line came back with a leading zero byte and one character too
+     many, which made the result useless as a string */
+  for (;;)
   {
+    imBinFileRead(handle, &byte_value, 1, 1);
+    if (imBinFileError(handle))
+      return 0;
+
+    if (byte_value == '\n' || byte_value == '\r')
+      break;
+
     if (comment && *size < max_size)
     {
       comment[*size] = byte_value;
       (*size)++;
     }
-
-    imBinFileRead(handle, &byte_value, 1, 1);
-    if (imBinFileError(handle))
-      return 0;
   }
 
   if (byte_value == '\r')

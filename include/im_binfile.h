@@ -80,7 +80,9 @@ unsigned long imBinFilePrintf(imBinFile* bfile, const char *format, ...);
 
 /** Reads a line until line break. \n
  * Returns the line in array, must have room enough. Line break is discarded. \n
- * Use *size to inform buffer size. *size return the actual number os characters read.
+ * Use *size to inform buffer size. *size returns the number of bytes placed in
+ * the array, counting the zero it is terminated with. An empty line returns a
+ * *size of zero and leaves the array alone, so check it before reading one.
  * \ingroup binfile */
 int imBinFileReadLine(imBinFile* handle, char* comment, int *size);
 
@@ -134,7 +136,9 @@ enum imBinFileModule
 };
 
 /** Sets the current I/O module.
- * \returns the previous function set, or -1 if failed.
+ * \returns the previous function set, or -1 if failed. A module is never -1,
+ * so that return unambiguously means the module was rejected and the previous
+ * one is still in force.
  * See also \ref imBinFileModule.
  * \ingroup binfile */
 int imBinFileSetCurrentModule(int pModule);
@@ -151,8 +155,11 @@ typedef struct _imBinMemoryFileName
                           *   The buffer is allocated using "malloc", and reallocated using "realloc". Use "free" to release it. 
                           *   To avoid RTL conflicts use the function imBinMemoryRelease. */
   int size;              /**< Size of the buffer. */ 
-  float reallocate;      /**< Reallocate factor for the memory buffer when writing (size += reallocate*size). 
-                          *   Set reallocate to 0 to disable reallocation, in this case buffer must not be NULL. */
+  float reallocate;      /**< Reallocate factor for the memory buffer when writing (size += reallocate*size).
+                          *   Set reallocate to 0 to disable reallocation, in this case buffer must not be NULL.
+                          *   A factor too small to add a whole byte to the current size still grows the
+                          *   buffer, by one byte at a time, so it reallocates to exactly the size needed.
+                          *   A negative factor is not meaningful and disables reallocation. */
 }imBinMemoryFileName;
                                              
 /** Release the internal memory allocated when writing a Memory File (see \ref imBinMemoryFileName).

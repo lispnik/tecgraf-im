@@ -127,6 +127,28 @@ compensate must stop.
 Defects where the old behaviour was not something anything could reasonably
 have depended on.
 
+- **`imBinFileReadLine` returned every line with a leading zero byte.** It
+  stored its loop variable before the first read, so the result was a zero
+  followed by the line, with `*size` counting it. The two callers in the
+  library, the PNM and KRN readers, pass that straight to a `Description`
+  attribute — so a commented PNM produced a description that read as an empty
+  string, 17 bytes long for a 15-character comment. Anything that compensated
+  by skipping the first byte will now skip a real character, and `*size` is one
+  smaller.
+- **The memory I/O module hung on a small `reallocate` factor.** The growth
+  step is the factor times the buffer's original size, which the loop does not
+  change, so any factor below `1/size` truncated the step to zero and the loop
+  spun forever. A four-byte buffer needed only a factor under 0.25, and the
+  header describes the growth as `size += reallocate*size`, which invites a
+  fractional one. The step is now at least one byte, so it reallocates to
+  exactly the size needed, and a negative factor disables growth instead of
+  being cast to an unsigned length.
+- **`imBinFileSetCurrentModule` accepted a negative module.** It bounded only
+  the upper end, so the value was stored and the next `imBinFileOpen` read a
+  function pointer from before the start of `iBinFileModule` and called it — a
+  bus error, from a caller passing a variable that happened to hold -1. Since a
+  module can no longer be -1, that return value now unambiguously means the
+  call was refused.
 - **`imPaletteFindNearest` could not find anything.** Its running minimum was
   seeded with `(unsigned int)-1` into an `int`, so the comparison against a
   squared distance never held and every colour without an exact match returned
