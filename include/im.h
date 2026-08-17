@@ -275,6 +275,12 @@ void imFormatRemoveAll(void);
  * Each format identifier is 10 chars max, maximum of 50 formats. 
  * You can use "char* format_list[50]". 
  *
+ * The array receives pointers into storage owned by this function, not copies
+ * into buffers you supply. So do not allocate the strings before calling and
+ * do not free them afterwards -- freeing what comes back corrupts the heap.
+ * That storage is also reused, so the strings are only valid until the next
+ * call to imFormatList; copy anything you need to keep.
+ *
  * \verbatim im.FormatList() -> format_list: table of strings [in Lua 5] \endverbatim
  * \ingroup format */
 void imFormatList(char** format_list, int *format_count);
@@ -300,6 +306,10 @@ int imFormatInfoExtra(const char* format, char* extra);
 
 /** Returns the format compressions. \n
  * Compressions are 20 chars max each, maximum of 50 compressions. You can use "char* comp[50]". \n
+ * As with \ref imFormatList, the array receives pointers into storage owned by
+ * this function rather than copies into buffers you supply: do not allocate
+ * the strings and do not free them, and copy them if you need them to outlive
+ * the next call. \n
  * color_mode and data_type are optional, use -1 to ignore them. \n
  * If you use them they will select only the allowed compressions checked like in \ref imFormatCanWriteImage. \n
  * Returns an error code.

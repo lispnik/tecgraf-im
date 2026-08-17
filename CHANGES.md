@@ -150,6 +150,13 @@ have depended on.
   image attribute, and everything that copies attributes into a fresh image
   copied the count, so a duplicate started at 1, was incremented to 2, and
   never reached zero.
+- **`imAnalyzeMeasureHoles` overflowed the heap whenever hole perimeters were
+  asked for**, which through the C++ wrapper is every call. It allocated
+  `holes_count * sizeof(int)` and passed the buffer to
+  `imAnalyzeMeasurePerimeter`, which writes that many `double`s and memsets all
+  of them first — exactly half the memory needed. The line above it allocates
+  a genuinely `int`-sized buffer for `imAnalyzeMeasureArea`, and this was
+  copied from it.
 - **PCX read past the end of its line buffer on 24-bit images.** The buffer
   reserves `3*width` bytes of scratch, but the copy back out of it uses the
   file's line width padded to an even number, times three — so any odd width

@@ -693,6 +693,11 @@ namespace im
     inline void RemoveAll() {
       imFormatRemoveAll(); }
 
+    /* Both of these hand back pointers into storage owned by the C function
+       rather than copies into buffers the caller supplies -- so pass a plain
+       array of pointers, do not allocate the strings, and do not free them.
+       The storage is reused on the next call, so copy anything that has to
+       outlive it. See the notes on imFormatList and imFormatCompressions. */
     inline void List(char** format_list, int &format_count) {
       imFormatList(format_list, &format_count); }
 
