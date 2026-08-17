@@ -31,6 +31,18 @@
    than dangerous. Depth is compared, because a source with more planes than
    the destination indexes past the end of its data pointer array. */
 
+/* Not every operation can use these two. A handful exist precisely to change
+   the data type -- imProcessDirectConv and imProcessUnNormalize both write an
+   IM_BYTE destination from a wider source -- so for those "the same type" is
+   never true of a valid call and asserting it makes the function a no-op. Use
+   imCheckSameSize with an explicit test of the destination type instead. */
+
+static inline int imCheckSameSize(const imImage* a, const imImage* b)
+{
+  return a->depth == b->depth &&
+         a->width == b->width && a->height == b->height;
+}
+
 static inline int imCheckSameType(const imImage* a, const imImage* b)
 {
   return a->data_type == b->data_type && a->depth == b->depth;
@@ -38,8 +50,7 @@ static inline int imCheckSameType(const imImage* a, const imImage* b)
 
 static inline int imCheckSameTypeSize(const imImage* a, const imImage* b)
 {
-  return imCheckSameType(a, b) &&
-         a->width == b->width && a->height == b->height;
+  return a->data_type == b->data_type && imCheckSameSize(a, b);
 }
 
 #endif

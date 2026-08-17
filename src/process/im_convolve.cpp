@@ -1329,9 +1329,12 @@ static int do_crossing(T* iband, T* oband, int width, int height, T t, int count
       offset01++;
     }
 
-    /* last pixel on line */
-    offset00++;
-    offset10++;
+    /* Last pixel on the line. The inner loop stops at width-1 and its trailing
+       increments already left the offsets on that pixel, so there is nothing to
+       advance here: incrementing again moved offset00 to the FIRST pixel of the
+       next row -- so the last column was never written and column 0 was written
+       twice -- and pushed offset10 a whole row further, one element past the
+       end of the image on the final iteration. */
 
     T v = 0;
 
@@ -1383,9 +1386,9 @@ static int do_crossing(T* iband, T* oband, int width, int height, T t, int count
     offset01++;
   }
 
-  offset00++;
-
-  /* last pixel */
+  /* Last pixel, at the offset the loop above already stopped on. The increment
+     that used to be here put it one element past the end of the destination,
+     making this a heap write out of bounds. */
   oband[offset00] = 0;
 
   if (!imCounterInc(counter)) 

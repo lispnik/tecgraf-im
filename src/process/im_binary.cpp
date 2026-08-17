@@ -80,7 +80,15 @@ static int DoThinImage(imbyte *map, int xsize, int ysize, int counter)
   int    p, q;    /* Neighborhood maps of adjacent cells      */
   imbyte    *qb;    /* Neighborhood maps of previous scanline      */
   int    m;    /* Deletion direction mask  */
-  
+
+  /* "count" is what stops the outer loop, so it must count only pixels that
+     actually went from 1 to 0. Each test below therefore checks the pixel is
+     set before counting it: without that, the neighborhood map at the left
+     edge marks already-zero pixels as deletable, count never reaches zero and
+     the loop never ends. The writes those tests suppress are stores of 0 over
+     a 0, so the thinned image is unchanged -- only the point at which the
+     passes stop, which is now the first pass that removes nothing. */
+
   qb = (imbyte *) malloc(xsize);
   qb[xsize-1] = 0;    /* Used for lower-right pixel  */
 
@@ -124,7 +132,7 @@ static int DoThinImage(imbyte *map, int xsize, int ysize, int counter)
           p = ((p<<1)&0666) | ((q<<3)&0110) | (map[(y+1)*xsize + x+1] != 0);
           qb[x] = (imbyte)p;
 
-          if  (((p&m) == 0) && isdelete[p] ) 
+          if  (((p&m) == 0) && isdelete[p] && map[y*xsize + x] )
           {
             count++;
             map[y*xsize + x] = 0;
@@ -134,7 +142,7 @@ static int DoThinImage(imbyte *map, int xsize, int ysize, int counter)
         /* Process right edge pixel.      */
        
         p = (p<<1)&0666;
-        if  ( (p&m) == 0 && isdelete[p] ) 
+        if  ( (p&m) == 0 && isdelete[p] && map[y*xsize + xsize-1] )
         {
           count++;
           map[y*xsize + xsize-1] = 0;
@@ -154,7 +162,7 @@ static int DoThinImage(imbyte *map, int xsize, int ysize, int counter)
         q = qb[x];
         p = ((p<<1)&0666) | ((q<<3)&0110);
 
-        if  ( (p&m) == 0 && isdelete[p] ) 
+        if  ( (p&m) == 0 && isdelete[p] && map[(ysize-1)*xsize + x] )
         {
           count++;
           map[(ysize-1)*xsize + x] = 0;

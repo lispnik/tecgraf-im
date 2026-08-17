@@ -975,8 +975,9 @@ namespace im
     inline int MultipleMedian(const Image *src_image_list, int src_image_count, Image& dst_image) {
       imImage** c_src_image_list = new imImage*[src_image_count];
       for (int i = 0; i < src_image_count; i++) c_src_image_list[i] = src_image_list[i].GetHandle();
-      return imProcessMultipleMedian((const imImage**)c_src_image_list, src_image_count, dst_image.GetHandle());
-      delete[] c_src_image_list; 
+      int ret = imProcessMultipleMedian((const imImage**)c_src_image_list, src_image_count, dst_image.GetHandle());
+      delete[] c_src_image_list;
+      return ret;
     }
     inline int AutoCovariance(const Image& src_image, const Image& mean_image, Image& dst_image) {
       return imProcessAutoCovariance(src_image.GetHandle(), mean_image.GetHandle(), dst_image.GetHandle()); }

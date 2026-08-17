@@ -1908,3 +1908,1325 @@ TEST_CASE("plus: AttribTable iterates its entries")
   CHECK(seen == 3);
   CHECK(seen == table.Count());
 }
+
+
+/* ================================================================== *
+ * The last of the Process namespace.
+ *
+ * Eighty-seven wrappers were still unexecuted after everything above,
+ * which is nearly all of what remained uncovered in this header once
+ * VideoCapture is set aside. They are all one-line forwards, so what
+ * is left to get wrong is narrow but real: these are not templates,
+ * so their bodies are type-checked by anything that includes the
+ * header whether or not it calls them -- but an argument passed in the
+ * wrong position, or a parameter quietly dropped, type-checks fine and
+ * produces a plausible answer. That is what the inverted as_bitmap
+ * flag was, and reading through this batch turned up MultipleMedian
+ * putting its "delete[]" after the "return", which leaked the array on
+ * every call and which no compiler warned about because nothing had
+ * instantiated the function.
+ *
+ * Every case runs the wrapper and the C function it names on identical
+ * inputs and compares the results byte for byte, which is the only way
+ * a transposed pair of arguments shows up. Inputs are seeded by filling
+ * the C image and copying its planes to the C++ one, rather than
+ * filling both from the same formula twice -- two loops that were meant
+ * to agree are one more thing that can silently disagree.
+ * ================================================================== */
+
+namespace {
+
+/* Values that suit the data type, rather than a byte pattern reinterpreted --
+   a float plane filled with arbitrary bytes is mostly NaN, and while memcmp
+   compares those fine it makes every operation's output meaningless. */
+template <class T>
+void fill_typed(void* data, int count, int plane, int variant)
+{
+  T* values = (T*)data;
+  for (int i = 0; i < count; i++)
+    values[i] = (T)(((i * (7 + variant * 4) + plane * 31 + variant * 13) % 200) + 1);
+}
+
+/* "variant" makes two sources genuinely different. Several operations here take
+   two images and are not symmetric in them, and the only way to show a wrapper
+   passes them in the right order is for exchanging them to change the answer --
+   which it cannot if both sources were seeded from the same formula. */
+void seed(imImage* image, int variant = 0)
+{
+  int planes = image->has_alpha? image->depth + 1: image->depth;
+  for (int p = 0; p < planes; p++)
+  {
+    if (image->color_space == IM_BINARY)
+    {
+      /* 0 and 1 only, in blobs rather than a checkerboard, so the region
+         operations have something connected to find. */
+      imbyte* values = (imbyte*)image->data[p];
+      for (int i = 0; i < image->count; i++)
+      {
+        int x = i % image->width, y = i / image->width;
+        values[i] = (imbyte)(((x / 3 + y / 2 + variant) % 2 == 0 ||
+                              (x * y) % (11 + variant) == 0)? 1: 0);
+      }
+      continue;
+    }
+
+    switch (image->data_type)
+    {
+    case IM_BYTE:    fill_typed<imbyte>  (image->data[p], image->count, p, variant); break;
+    case IM_SHORT:   fill_typed<short>   (image->data[p], image->count, p, variant); break;
+    case IM_USHORT:  fill_typed<imushort>(image->data[p], image->count, p, variant); break;
+    case IM_INT:     fill_typed<int>     (image->data[p], image->count, p, variant); break;
+    case IM_FLOAT:   fill_typed<float>   (image->data[p], image->count, p, variant); break;
+    case IM_DOUBLE:  fill_typed<double>  (image->data[p], image->count, p, variant); break;
+    /* A complex plane is real and imaginary interleaved, so twice the reals. */
+    case IM_CFLOAT:  fill_typed<float>   (image->data[p], image->count*2, p, variant); break;
+    case IM_CDOUBLE: fill_typed<double>  (image->data[p], image->count*2, p, variant); break;
+    default: break;
+    }
+  }
+}
+
+/* Values in 0-1, which several of the colour and normalization operations
+   require of a real source. */
+void seed_normalized(imImage* image)
+{
+  int planes = image->has_alpha? image->depth + 1: image->depth;
+  for (int p = 0; p < planes; p++)
+    for (int i = 0; i < image->count; i++)
+    {
+      double v = (double)((i * 7 + p * 31) % 100) / 99.0;
+      if (image->data_type == IM_FLOAT) ((float*)image->data[p])[i] = (float)v;
+      else                              ((double*)image->data[p])[i] = v;
+    }
+}
+
+/* A matched pair: one C image and one wrapper image of the same shape, holding
+   the same bytes. Destroys the C one and lets the wrapper destroy its own. */
+struct Pair
+{
+  imImage* c;
+  im::Image plus;
+
+  Pair(int color_space, int data_type, int variant = 0, int normalized = 0)
+    : c(imImageCreate(BW, BH, color_space, data_type)),
+      plus(BW, BH, color_space, data_type)
+  {
+    REQUIRE(c != NULL);
+    REQUIRE(!plus.Failed());
+    if (normalized) seed_normalized(c); else seed(c, variant);
+    int planes = c->has_alpha? c->depth + 1: c->depth;
+    int plane_bytes = c->count * imDataTypeSize(c->data_type);
+    for (int p = 0; p < planes; p++)
+      memcpy(plus.GetHandle()->data[p], c->data[p], plane_bytes);
+  }
+
+  ~Pair() { if (c) imImageDestroy(c); }
+
+private:
+  Pair(const Pair&);
+  Pair& operator=(const Pair&);
+};
+
+/* A destination still holding nothing but its fill byte means nothing ran.
+   Worth asserting next to every comparison against C, because when a
+   precondition fails BOTH sides return without writing and the comparison
+   agrees on "untouched" -- which is exactly how a guard that made
+   imProcessDirectConv impossible to satisfy passed this file until a build
+   with asserts enabled aborted on the assert beside it. */
+bool wrote_something(const imImage* image)
+{
+  int planes = image->has_alpha? image->depth + 1: image->depth;
+  int plane_bytes = image->count * imDataTypeSize(image->data_type);
+  for (int p = 0; p < planes; p++)
+  {
+    const unsigned char* raw = (const unsigned char*)image->data[p];
+    for (int i = 0; i < plane_bytes; i++)
+      if (raw[i] != 0x5A) return true;
+  }
+  return false;
+}
+
+/* An empty destination pair, not seeded -- both start as imImageCreate leaves
+   them so that "the wrapper never wrote anything" cannot pass by accident. */
+struct DstPair
+{
+  imImage* c;
+  im::Image plus;
+
+  DstPair(int color_space, int data_type, int w = BW, int h = BH)
+    : c(imImageCreate(w, h, color_space, data_type)), plus(w, h, color_space, data_type)
+  {
+    REQUIRE(c != NULL);
+    REQUIRE(!plus.Failed());
+    int planes = c->has_alpha? c->depth + 1: c->depth;
+    int plane_bytes = c->count * imDataTypeSize(c->data_type);
+    for (int p = 0; p < planes; p++)
+    {
+      memset(c->data[p], 0x5A, plane_bytes);
+      memset(plus.GetHandle()->data[p], 0x5A, plane_bytes);
+    }
+  }
+
+  ~DstPair() { if (c) imImageDestroy(c); }
+
+private:
+  DstPair(const DstPair&);
+  DstPair& operator=(const DstPair&);
+};
+
+} /* namespace */
+
+
+TEST_CASE("plus: the remaining gray filters forward to their C functions")
+{
+  Pair src(IM_GRAY, IM_BYTE);
+  DstPair dst(IM_GRAY, IM_BYTE);
+
+  SUBCASE("BarlettConvolve")
+  {
+    CHECK(im::Process::BarlettConvolve(src.plus, dst.plus, 5) ==
+          imProcessBarlettConvolve(src.c, dst.c, 5));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("RankClosestConvolve")
+  {
+    CHECK(im::Process::RankClosestConvolve(src.plus, dst.plus, 3) ==
+          imProcessRankClosestConvolve(src.c, dst.c, 3));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("LapOfGaussianConvolve")
+  {
+    CHECK(im::Process::LapOfGaussianConvolve(src.plus, dst.plus, 1.5) ==
+          imProcessLapOfGaussianConvolve(src.c, dst.c, 1.5));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("DiffOfGaussianConvolve")
+  {
+    /* Two stddevs, and they are not interchangeable -- a difference of
+       gaussians with them the wrong way round is the negative of the right
+       answer, which is exactly the slip this comparison catches. */
+    CHECK(im::Process::DiffOfGaussianConvolve(src.plus, dst.plus, 1.0, 2.0) ==
+          imProcessDiffOfGaussianConvolve(src.c, dst.c, 1.0, 2.0));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("SplineEdgeConvolve")
+  {
+    CHECK(im::Process::SplineEdgeConvolve(src.plus, dst.plus) ==
+          imProcessSplineEdgeConvolve(src.c, dst.c));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("Canny")
+  {
+    CHECK(im::Process::Canny(src.plus, dst.plus, 1.0) ==
+          imProcessCanny(src.c, dst.c, 1.0));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("LocalMaxThreshold")
+  {
+    CHECK(im::Process::LocalMaxThreshold(src.plus, dst.plus, 5, 10) ==
+          imProcessLocalMaxThreshold(src.c, dst.c, 5, 10));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("RangeContrastThreshold")
+  {
+    CHECK(im::Process::RangeContrastThreshold(src.plus, dst.plus, 5, 10) ==
+          imProcessRangeContrastThreshold(src.c, dst.c, 5, 10));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("QuantizeGrayMedianCut")
+  {
+    im::Process::QuantizeGrayMedianCut(src.plus, dst.plus, 16);
+    imProcessQuantizeGrayMedianCut(src.c, dst.c, 16);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ArithmeticConstOp")
+  {
+    /* The constant sits between the two images in the argument list rather
+       than after them, which is unusual enough in this API to be worth a
+       case of its own. */
+    im::Process::ArithmeticConstOp(src.plus, 3.0, dst.plus, IM_BIN_MUL);
+    imProcessArithmeticConstOp(src.c, 3.0, dst.c, IM_BIN_MUL);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("BackSub")
+  {
+    Pair background(IM_GRAY, IM_BYTE, 1);
+    im::Process::BackSub(src.plus, background.plus, dst.plus, 10.0, 1);
+    imProcessBackSub(src.c, background.c, dst.c, 10.0, 1);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("AbnormalHyperionCorrection")
+  {
+    /* The fifth argument is an output too -- the abnormal pixel map -- so
+       both have to be compared, not just the image. */
+    DstPair abnormal(IM_BINARY, IM_BYTE);
+    im::Process::AbnormalHyperionCorrection(src.plus, dst.plus, 3, 50, abnormal.plus);
+    imProcessAbnormalHyperionCorrection(src.c, dst.c, 3, 50, abnormal.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+    CHECK(same_data(abnormal.plus.GetHandle(), abnormal.c));
+    CHECK(wrote_something(abnormal.c));
+  }
+  SUBCASE("CalcAutoGamma")
+  {
+    CHECK(im::Process::CalcAutoGamma(src.plus) == imProcessCalcAutoGamma(src.c));
+  }
+  SUBCASE("HysteresisThresEstimate")
+  {
+    /* Two out-parameters taken by reference and forwarded as addresses, so a
+       swap here is invisible unless both are read back. */
+    int plus_low = -1, plus_high = -1, c_low = -1, c_high = -1;
+    im::Process::HysteresisThresEstimate(src.plus, plus_low, plus_high);
+    imProcessHysteresisThresEstimate(src.c, &c_low, &c_high);
+    CHECK(plus_low == c_low);
+    CHECK(plus_high == c_high);
+    CHECK(plus_low <= plus_high);
+  }
+  SUBCASE("LocalMaxThresEstimate")
+  {
+    int plus_level = -1, c_level = -1;
+    im::Process::LocalMaxThresEstimate(src.plus, plus_level);
+    imProcessLocalMaxThresEstimate(src.c, &c_level);
+    CHECK(plus_level == c_level);
+  }
+}
+
+TEST_CASE("plus: the OpenMP settings forward to their C functions")
+{
+  SUBCASE("OpenMPSetMinCount stores what it is given")
+  {
+    /* Process-wide, so it is put back. The return is the previous value, which
+       is what makes restoring possible. */
+    int previous = im::Process::OpenMPSetMinCount(1000);
+    CHECK(im::Process::OpenMPSetMinCount(previous) == 1000);
+  }
+
+  SUBCASE("OpenMPSetNumThreads forwards, and does nothing in this build")
+  {
+    /* im_tests links the plain libim_process rather than libim_process_omp, so
+       imProcessOpenMPSetNumThreads compiles to "return 1" and stores nothing.
+       Asserting the round trip here would be asserting a property of the OMP
+       build, which is not the one under test -- so what is checked is that the
+       wrapper returns exactly what the C function does. */
+    CHECK(im::Process::OpenMPSetNumThreads(2) == imProcessOpenMPSetNumThreads(2));
+    CHECK(im::Process::OpenMPSetNumThreads(1) == imProcessOpenMPSetNumThreads(1));
+  }
+}
+
+TEST_CASE("plus: the conversion wrappers forward their four trailing arguments")
+{
+  /* ConvertDataType and ConvertToBitmap each take cpx2real, gamma, absolute
+     and cast_mode in that order -- four parameters of three different
+     meanings, two of them ints that would transpose without complaint. */
+  Pair src(IM_GRAY, IM_INT);
+
+  SUBCASE("ConvertDataType")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::ConvertDataType(src.plus, dst.plus, IM_CPX_REAL, 0.0, 0, IM_CAST_MINMAX) ==
+          imProcessConvertDataType(src.c, dst.c, IM_CPX_REAL, 0.0, 0, IM_CAST_MINMAX));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ConvertToBitmap")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::ConvertToBitmap(src.plus, dst.plus, IM_CPX_REAL, 0.0, 0, IM_CAST_MINMAX) ==
+          imProcessConvertToBitmap(src.c, dst.c, IM_CPX_REAL, 0.0, 0, IM_CAST_MINMAX));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("DirectConv")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    im::Process::DirectConv(src.plus, dst.plus);
+    imProcessDirectConv(src.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ConvertColorSpace")
+  {
+    Pair rgb(IM_RGB, IM_BYTE);
+    DstPair gray(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::ConvertColorSpace(rgb.plus, gray.plus) ==
+          imProcessConvertColorSpace(rgb.c, gray.c));
+    CHECK(same_data(gray.plus.GetHandle(), gray.c));
+    CHECK(wrote_something(gray.c));
+  }
+  SUBCASE("UnNormalize")
+  {
+    /* Source has to be real and in 0-1 for this to mean anything. */
+    Pair normalized(IM_GRAY, IM_FLOAT, 0, 1);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    im::Process::UnNormalize(normalized.plus, dst.plus);
+    imProcessUnNormalize(normalized.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}
+
+TEST_CASE("plus: the kernel-taking wrappers pass the kernel in the right place")
+{
+  /* The group with the most room for a transposition, since the kernel is
+     another image and would be accepted in a source or destination position
+     without complaint. */
+  Pair src(IM_GRAY, IM_BYTE);
+  DstPair dst(IM_GRAY, IM_BYTE);
+
+  SUBCASE("ConvolveSep")
+  {
+    im::Image kernel = im::Kernel::Gaussian5x5();
+    CHECK(im::Process::ConvolveSep(src.plus, dst.plus, kernel) ==
+          imProcessConvolveSep(src.c, dst.c, kernel.GetHandle()));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ConvolveRep")
+  {
+    im::Image kernel = im::Kernel::Mean3x3();
+    CHECK(im::Process::ConvolveRep(src.plus, dst.plus, kernel, 3) ==
+          imProcessConvolveRep(src.c, dst.c, kernel.GetHandle(), 3));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ConvolveDual")
+  {
+    /* Two kernels, and the operation takes the magnitude of both results, so
+       swapping them would pass. They are made different in shape rather than
+       in orientation so that the comparison against C still pins the order. */
+    im::Image kernel1 = im::Kernel::Sobel();
+    im::Image kernel2 = im::Kernel::Prewitt();
+    CHECK(im::Process::ConvolveDual(src.plus, dst.plus, kernel1, kernel2) ==
+          imProcessConvolveDual(src.c, dst.c, kernel1.GetHandle(), kernel2.GetHandle()));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("CompassConvolve")
+  {
+    im::Image kernel = im::Kernel::Kirsh();
+    CHECK(im::Process::CompassConvolve(src.plus, dst.plus, kernel) ==
+          imProcessCompassConvolve(src.c, dst.c, kernel.GetHandle()));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("SharpKernel")
+  {
+    /* Note the argument order: the kernel comes SECOND here, before the
+       destination, unlike every other kernel operation in this group. A
+       wrapper written by pattern-matching the others would have it wrong. */
+    im::Image kernel = im::Kernel::Laplacian4();
+    CHECK(im::Process::SharpKernel(src.plus, kernel, dst.plus, 0.5, 0.0) ==
+          imProcessSharpKernel(src.c, kernel.GetHandle(), dst.c, 0.5, 0.0));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("GrayMorphConvolve")
+  {
+    im::Image kernel(3, 3, IM_GRAY, IM_INT);
+    imImage* c_kernel = imImageCreate(3, 3, IM_GRAY, IM_INT);
+    REQUIRE(c_kernel != NULL);
+    for (int i = 0; i < 9; i++)
+    {
+      ((int*)kernel.GetHandle()->data[0])[i] = (i == 4)? 0: -1;
+      ((int*)c_kernel->data[0])[i] = (i == 4)? 0: -1;
+    }
+    CHECK(im::Process::GrayMorphConvolve(src.plus, dst.plus, kernel, 1) ==
+          imProcessGrayMorphConvolve(src.c, dst.c, kernel.GetHandle(), 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+    imImageDestroy(c_kernel);
+  }
+  SUBCASE("RotateKernel")
+  {
+    /* In place on the kernel itself, so the comparison is between two kernels
+       rotated the same number of times. */
+    im::Image kernel = im::Kernel::Sobel();
+    imImage* c_kernel = imKernelSobel();
+    REQUIRE(c_kernel != NULL);
+    im::Process::RotateKernel(kernel);
+    imProcessRotateKernel(c_kernel);
+    CHECK(same_data(kernel.GetHandle(), c_kernel));
+    imImageDestroy(c_kernel);
+  }
+}
+
+TEST_CASE("plus: the binary-image wrappers forward to their C functions")
+{
+  Pair src(IM_BINARY, IM_BYTE);
+  DstPair dst(IM_BINARY, IM_BYTE);
+
+  SUBCASE("FillHoles")
+  {
+    CHECK(im::Process::FillHoles(src.plus, dst.plus, 4) ==
+          imProcessFillHoles(src.c, dst.c, 4));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("RemoveByArea")
+  {
+    /* Four ints in a row -- connect, start_size, end_size, inside -- which is
+       the worst case for a silent transposition. */
+    CHECK(im::Process::RemoveByArea(src.plus, dst.plus, 4, 2, 20, 1) ==
+          imProcessRemoveByArea(src.c, dst.c, 4, 2, 20, 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("PerimeterLine")
+  {
+    CHECK(im::Process::PerimeterLine(src.plus, dst.plus) ==
+          imProcessPerimeterLine(src.c, dst.c));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("BinThinNhMaps")
+  {
+    /* This one never returned before: its pass loop stops when a pass deletes
+       nothing, but the neighborhood map at the left edge marked already-zero
+       pixels as deletable and each was counted as a deletion, so the count
+       never reached zero. Reaching the assertions below is the result -- and
+       the three that follow the comparison are what say the fix did not just
+       stop the loop early, since a thinning that halted at the wrong moment
+       would still forward identically to C.
+
+       Not behind a timeout, deliberately: if this regresses, a test that hangs
+       is a clearer signal than one that fails. */
+    CHECK(im::Process::BinThinNhMaps(src.plus, dst.plus) ==
+          imProcessBinThinNhMaps(src.c, dst.c));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    int set_in = 0, set_out = 0, appeared = 0, out_of_range = 0;
+    for (int i = 0; i < src.c->count; i++)
+    {
+      imbyte before = ((imbyte*)src.c->data[0])[i];
+      imbyte after = ((imbyte*)dst.c->data[0])[i];
+      set_in += before? 1: 0;
+      set_out += after? 1: 0;
+      if (after && !before) appeared++;
+      if (after > 1) out_of_range++;
+    }
+    CHECK(appeared == 0);                 /* thinning only ever removes */
+    CHECK(out_of_range == 0);             /* and leaves a binary image  */
+    CHECK(set_out > 0);                   /* without erasing everything */
+    CHECK(set_out < set_in);              /* but it did thin something  */
+
+    /* And it had really reached a fixed point: thinning the skeleton again
+       removes nothing. A loop stopped one pass too early would fail this. */
+    DstPair again(IM_BINARY, IM_BYTE);
+    REQUIRE(imProcessBinThinNhMaps(dst.c, again.c) != 0);
+    CHECK(same_data(again.c, dst.c));
+  }
+  SUBCASE("BinMorphConvolve")
+  {
+    im::Image kernel(3, 3, IM_GRAY, IM_INT);
+    for (int i = 0; i < 9; i++) ((int*)kernel.GetHandle()->data[0])[i] = 1;
+    CHECK(im::Process::BinMorphConvolve(src.plus, dst.plus, kernel, 1, 2) ==
+          imProcessBinMorphConvolve(src.c, dst.c, kernel.GetHandle(), 1, 2));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("BinaryMask")
+  {
+    /* The mask is the third argument and the destination the second, which is
+       the reverse of what the name order suggests. */
+    Pair image(IM_GRAY, IM_BYTE, 1);
+    DstPair masked(IM_GRAY, IM_BYTE);
+    im::Process::BinaryMask(image.plus, masked.plus, src.plus);
+    imProcessBinaryMask(image.c, masked.c, src.c);
+    CHECK(same_data(masked.plus.GetHandle(), masked.c));
+    CHECK(wrote_something(masked.c));
+  }
+  SUBCASE("DistanceTransform")
+  {
+    DstPair distance(IM_GRAY, IM_FLOAT);
+    im::Process::DistanceTransform(src.plus, distance.plus);
+    imProcessDistanceTransform(src.c, distance.c);
+    CHECK(same_data(distance.plus.GetHandle(), distance.c));
+    CHECK(wrote_something(distance.c));
+  }
+  SUBCASE("RegionalMaximum")
+  {
+    /* Takes the distance transform's output, so it needs a float source and a
+       binary target -- the opposite way round from DistanceTransform. */
+    Pair distance(IM_GRAY, IM_FLOAT);
+    DstPair maxima(IM_BINARY, IM_BYTE);
+    im::Process::RegionalMaximum(distance.plus, maxima.plus);
+    imProcessRegionalMaximum(distance.c, maxima.c);
+    CHECK(same_data(maxima.plus.GetHandle(), maxima.c));
+    CHECK(wrote_something(maxima.c));
+  }
+}
+
+TEST_CASE("plus: the geometric wrappers forward their offsets and orders")
+{
+  Pair src(IM_GRAY, IM_BYTE);
+
+  SUBCASE("AddMargins")
+  {
+    /* The destination has to be big enough for the source plus the margins,
+       so it is a different size from the source -- which also means a wrapper
+       that passed the two images the wrong way round could not succeed. */
+    DstPair dst(IM_GRAY, IM_BYTE, BW + 4, BH + 6);
+    CHECK(im::Process::AddMargins(src.plus, dst.plus, 2, 3) ==
+          imProcessAddMargins(src.c, dst.c, 2, 3));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("Insert")
+  {
+    Pair region(IM_GRAY, IM_BYTE, 1);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::Insert(src.plus, region.plus, dst.plus, 2, 3) ==
+          imProcessInsert(src.c, region.c, dst.c, 2, 3));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("RotateRef")
+  {
+    /* Eight arguments, six of them numbers: cos, sin, x, y, to_origin,
+       order. The cos and sin are given rather than an angle, so passing them
+       in the wrong order rotates the other way by the complementary angle --
+       a plausible image, and a wrong one. */
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::RotateRef(src.plus, dst.plus, 0.8, 0.6, 4, 5, 1, 1) ==
+          imProcessRotateRef(src.c, dst.c, 0.8, 0.6, 4, 5, 1, 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("Radial")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::Radial(src.plus, dst.plus, 0.1, 1) ==
+          imProcessRadial(src.c, dst.c, 0.1, 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("Swirl")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::Swirl(src.plus, dst.plus, 0.5, 1) ==
+          imProcessSwirl(src.c, dst.c, 0.5, 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("LensDistort")
+  {
+    /* Three coefficients that are not interchangeable and an order after
+       them. */
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::LensDistort(src.plus, dst.plus, 0.1, 0.02, 0.003, 1) ==
+          imProcessLensDistort(src.c, dst.c, 0.1, 0.02, 0.003, 1));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("InterlaceSplit")
+  {
+    /* Two destinations, each half the height, and the odd and even fields are
+       different -- so a wrapper that passed them the wrong way round is
+       caught by comparing both. */
+    DstPair odd(IM_GRAY, IM_BYTE, BW, BH/2);
+    DstPair even(IM_GRAY, IM_BYTE, BW, BH/2);
+    CHECK(im::Process::InterlaceSplit(src.plus, odd.plus, even.plus) ==
+          imProcessInterlaceSplit(src.c, odd.c, even.c));
+    CHECK(same_data(odd.plus.GetHandle(), odd.c));
+    CHECK(wrote_something(odd.c));
+    CHECK(same_data(even.plus.GetHandle(), even.c));
+    CHECK(wrote_something(even.c));
+    CHECK(!same_data(odd.plus.GetHandle(), even.plus.GetHandle()));
+  }
+}
+
+TEST_CASE("plus: the colour wrappers forward to their C functions")
+{
+  Pair rgb(IM_RGB, IM_BYTE);
+
+  SUBCASE("SelectHue")
+  {
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::SelectHue(rgb.plus, dst.plus, 60.0, 180.0);
+    imProcessSelectHue(rgb.c, dst.c, 60.0, 180.0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("SelectHSI")
+  {
+    /* Six bounds in three pairs. Passing them as three ranges rather than as
+       start-then-end throughout would type-check and select a different
+       region entirely. */
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::SelectHSI(rgb.plus, dst.plus, 60.0, 180.0, 0.2, 0.9, 0.1, 0.8);
+    imProcessSelectHSI(rgb.c, dst.c, 60.0, 180.0, 0.2, 0.9, 0.1, 0.8);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ShiftHSI")
+  {
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::ShiftHSI(rgb.plus, dst.plus, 30.0, 0.1, -0.05);
+    imProcessShiftHSI(rgb.c, dst.c, 30.0, 0.1, -0.05);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ShiftComponent")
+  {
+    /* Same shape of call as ShiftHSI and a different operation, which is why
+       both are here: a wrapper wired to the wrong one of the two would look
+       right at every call site, and the comparison against C below only
+       catches that if the two C functions actually disagree on these
+       arguments. They do not always -- with whole-number shifts like
+       (10, 20, 30) both saturate and the outputs are identical over the whole
+       image, which is why the shifts here are the fractional ones ShiftHSI is
+       meant for. Measured: they differ at 560 of 576 samples. */
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::ShiftComponent(rgb.plus, dst.plus, 30.0, 0.1, -0.05);
+    imProcessShiftComponent(rgb.c, dst.c, 30.0, 0.1, -0.05);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    DstPair as_hsi(IM_RGB, IM_BYTE);
+    imProcessShiftHSI(rgb.c, as_hsi.c, 30.0, 0.1, -0.05);
+    CHECK(!same_data(dst.c, as_hsi.c));
+  }
+  SUBCASE("SplitHSI and MergeHSI round-trip through each other")
+  {
+    /* The HSI planes are produced rather than invented, so MergeHSI gets
+       inputs in the ranges it expects -- hue in degrees, the other two in
+       0-1. Three targets of the same type, so the split is where a
+       transposition hides, and the merge takes them back in the same order. */
+    DstPair h(IM_GRAY, IM_FLOAT), s(IM_GRAY, IM_FLOAT), i(IM_GRAY, IM_FLOAT);
+
+    im::Process::SplitHSI(rgb.plus, h.plus, s.plus, i.plus);
+    imProcessSplitHSI(rgb.c, h.c, s.c, i.c);
+    CHECK(same_data(h.plus.GetHandle(), h.c));
+    CHECK(wrote_something(h.c));
+    CHECK(same_data(s.plus.GetHandle(), s.c));
+    CHECK(wrote_something(s.c));
+    CHECK(same_data(i.plus.GetHandle(), i.c));
+    CHECK(wrote_something(i.c));
+
+    /* The three planes are different from each other, so comparing all three
+       is a real check on the order rather than three copies of one answer. */
+    CHECK(!same_data(h.c, s.c));
+    CHECK(!same_data(s.c, i.c));
+
+    DstPair back(IM_RGB, IM_BYTE);
+    im::Process::MergeHSI(h.plus, s.plus, i.plus, back.plus);
+    imProcessMergeHSI(h.c, s.c, i.c, back.c);
+    CHECK(same_data(back.plus.GetHandle(), back.c));
+    CHECK(wrote_something(back.c));
+  }
+  SUBCASE("SplitYChroma")
+  {
+    /* Two targets of different shapes -- gray luma, RGB chroma -- so this one
+       could not compile with them swapped, but the values still have to line
+       up with C. */
+    DstPair luma(IM_GRAY, IM_BYTE);
+    DstPair chroma(IM_RGB, IM_BYTE);
+    im::Process::SplitYChroma(rgb.plus, luma.plus, chroma.plus);
+    imProcessSplitYChroma(rgb.c, luma.c, chroma.c);
+    CHECK(same_data(luma.plus.GetHandle(), luma.c));
+    CHECK(wrote_something(luma.c));
+    CHECK(same_data(chroma.plus.GetHandle(), chroma.c));
+    CHECK(wrote_something(chroma.c));
+  }
+  SUBCASE("ThresholdColor")
+  {
+    /* The colour is an array with one entry per component, so it is the
+       argument most likely to be passed with the wrong count somewhere. */
+    DstPair dst(IM_BINARY, IM_BYTE);
+    double plus_color[3] = { 100.0, 120.0, 140.0 };
+    double c_color[3] = { 100.0, 120.0, 140.0 };
+    im::Process::ThresholdColor(rgb.plus, dst.plus, plus_color, 30.0);
+    imProcessThresholdColor(rgb.c, dst.c, c_color, 30.0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("ThresholdSaturation")
+  {
+    DstPair dst(IM_BINARY, IM_BYTE);
+    im::Process::ThresholdSaturation(rgb.plus, dst.plus, 0.3);
+    imProcessThresholdSaturation(rgb.c, dst.c, 0.3);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("PseudoColor")
+  {
+    Pair gray(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::PseudoColor(gray.plus, dst.plus);
+    imProcessPseudoColor(gray.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("QuantizeRGBMedianCut")
+  {
+    /* Target is IM_MAP, so the palette is part of the answer and comparing
+       the samples alone would miss a wrapper that dropped it. */
+    DstPair dst(IM_MAP, IM_BYTE);
+    im::Process::QuantizeRGBMedianCut(rgb.plus, dst.plus);
+    imProcessQuantizeRGBMedianCut(rgb.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+    CHECK(dst.plus.GetHandle()->palette_count == dst.c->palette_count);
+    CHECK(memcmp(dst.plus.GetHandle()->palette, dst.c->palette,
+                 (size_t)dst.c->palette_count * sizeof(long)) == 0);
+  }
+  SUBCASE("NormDiffRatio")
+  {
+    Pair a(IM_GRAY, IM_BYTE), b(IM_GRAY, IM_BYTE, 1);
+    DstPair dst(IM_GRAY, IM_FLOAT);
+    im::Process::NormDiffRatio(a.plus, b.plus, dst.plus);
+    imProcessNormDiffRatio(a.c, b.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}
+
+TEST_CASE("plus: the alpha wrappers forward to their C functions")
+{
+  SUBCASE("Compose")
+  {
+    /* Both sources need an alpha channel for the OVER operator to mean
+       anything, and same_data compares the alpha plane too. */
+    Pair a(IM_RGB|IM_ALPHA, IM_BYTE), b(IM_RGB|IM_ALPHA, IM_BYTE, 1);
+    DstPair dst(IM_RGB|IM_ALPHA, IM_BYTE);
+    im::Process::Compose(a.plus, b.plus, dst.plus);
+    imProcessCompose(a.c, b.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("Blend")
+  {
+    /* Four images, and the alpha one sits third rather than last -- the
+       position a reader would expect the destination to be in. */
+    Pair a(IM_RGB, IM_BYTE), b(IM_RGB, IM_BYTE, 1), alpha(IM_GRAY, IM_BYTE, 2);
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::Blend(a.plus, b.plus, alpha.plus, dst.plus);
+    imProcessBlend(a.c, b.c, alpha.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("BlendConst")
+  {
+    Pair a(IM_RGB, IM_BYTE), b(IM_RGB, IM_BYTE, 1);
+    DstPair dst(IM_RGB, IM_BYTE);
+    im::Process::BlendConst(a.plus, b.plus, dst.plus, 0.25);
+    imProcessBlendConst(a.c, b.c, dst.c, 0.25);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    /* 0.25 rather than 0.5: a symmetric blend is the same with the two
+       sources exchanged, so it could not catch them being swapped. */
+    DstPair swapped(IM_RGB, IM_BYTE);
+    imProcessBlendConst(b.c, a.c, swapped.c, 0.25);
+    CHECK(!same_data(dst.c, swapped.c));
+  }
+  SUBCASE("SetAlphaColor")
+  {
+    Pair src(IM_RGB, IM_BYTE);
+    DstPair dst(IM_RGB|IM_ALPHA, IM_BYTE);
+
+    /* The colour is read out of the source rather than invented: this sets
+       alpha only where the colour actually occurs and leaves the rest alone,
+       so a colour that appears nowhere makes the whole call a no-op -- and two
+       no-ops compare equal, which is the pass this case is written to avoid. */
+    double plus_color[3], c_color[3];
+    for (int p = 0; p < 3; p++)
+    {
+      plus_color[p] = (double)((imbyte*)src.c->data[p])[5];
+      c_color[p] = plus_color[p];
+    }
+
+    im::Process::SetAlphaColor(src.plus, dst.plus, plus_color, 128.0);
+    imProcessSetAlphaColor(src.c, dst.c, c_color, 128.0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}
+
+TEST_CASE("plus: the complex wrappers forward to their C functions")
+{
+  SUBCASE("SplitComplex and MergeComplex, both readings")
+  {
+    /* The trailing flag chooses real/imaginary or magnitude/phase, so it is
+       run both ways: a wrapper that dropped it would agree with C on
+       whichever value the C side defaulted to and disagree on the other. */
+    for (int polar = 0; polar <= 1; polar++)
+    {
+      CAPTURE(polar);
+      Pair src(IM_GRAY, IM_CFLOAT);
+      DstPair first(IM_GRAY, IM_FLOAT), second(IM_GRAY, IM_FLOAT);
+
+      im::Process::SplitComplex(src.plus, first.plus, second.plus, polar);
+      imProcessSplitComplex(src.c, first.c, second.c, polar);
+      CHECK(same_data(first.plus.GetHandle(), first.c));
+      CHECK(wrote_something(first.c));
+      CHECK(same_data(second.plus.GetHandle(), second.c));
+      CHECK(wrote_something(second.c));
+
+      DstPair merged(IM_GRAY, IM_CFLOAT);
+      im::Process::MergeComplex(first.plus, second.plus, merged.plus, polar);
+      imProcessMergeComplex(first.c, second.c, merged.c, polar);
+      CHECK(same_data(merged.plus.GetHandle(), merged.c));
+      CHECK(wrote_something(merged.c));
+    }
+  }
+  SUBCASE("MultiplyConj")
+  {
+    /* Conj(a)*b, so it is not symmetric and swapping the sources conjugates
+       the other one -- checked below, since otherwise the comparison against
+       C would pass either way round. */
+    Pair a(IM_GRAY, IM_CFLOAT), b(IM_GRAY, IM_CFLOAT, 1);
+    DstPair dst(IM_GRAY, IM_CFLOAT);
+    im::Process::MultiplyConj(a.plus, b.plus, dst.plus);
+    imProcessMultiplyConj(a.c, b.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    DstPair swapped(IM_GRAY, IM_CFLOAT);
+    imProcessMultiplyConj(b.c, a.c, swapped.c);
+    CHECK(!same_data(dst.c, swapped.c));
+  }
+  SUBCASE("AutoCovariance")
+  {
+    Pair src(IM_GRAY, IM_BYTE), mean(IM_GRAY, IM_BYTE, 1);
+    DstPair dst(IM_GRAY, IM_FLOAT);
+    CHECK(im::Process::AutoCovariance(src.plus, mean.plus, dst.plus) ==
+          imProcessAutoCovariance(src.c, mean.c, dst.c));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}
+
+#ifdef IM_TEST_HAS_FFTW3
+TEST_CASE("plus: the Fourier wrappers forward to their C functions")
+{
+  /* Guarded the same way test_transform.cpp guards its Fourier cases: these
+     six live in libim_fftw3, which is its own build option, and referencing
+     them without it fails to link rather than failing a test. */
+  SUBCASE("FFT and IFFT")
+  {
+    Pair src(IM_GRAY, IM_FLOAT);
+    DstPair frequency(IM_GRAY, IM_CFLOAT);
+    im::Process::FFT(src.plus, frequency.plus);
+    imProcessFFT(src.c, frequency.c);
+    CHECK(same_data(frequency.plus.GetHandle(), frequency.c));
+    CHECK(wrote_something(frequency.c));
+
+    DstPair back(IM_GRAY, IM_CFLOAT);
+    im::Process::IFFT(frequency.plus, back.plus);
+    imProcessIFFT(frequency.c, back.c);
+    CHECK(same_data(back.plus.GetHandle(), back.c));
+    CHECK(wrote_something(back.c));
+  }
+  SUBCASE("FFTraw forwards its three flags")
+  {
+    /* In place, and the three flags are inverse, center and normalize in that
+       order -- three ints that would transpose silently. */
+    Pair image(IM_GRAY, IM_CFLOAT);
+    im::Process::FFTraw(image.plus, 0, 1, 2);
+    imProcessFFTraw(image.c, 0, 1, 2);
+    CHECK(same_data(image.plus.GetHandle(), image.c));
+    CHECK(wrote_something(image.c));
+  }
+  SUBCASE("SwapQuadrants")
+  {
+    Pair image(IM_GRAY, IM_CFLOAT);
+    im::Process::SwapQuadrants(image.plus, 1);
+    imProcessSwapQuadrants(image.c, 1);
+    CHECK(same_data(image.plus.GetHandle(), image.c));
+    CHECK(wrote_something(image.c));
+  }
+  SUBCASE("CrossCorrelation and AutoCorrelation")
+  {
+    Pair a(IM_GRAY, IM_FLOAT), b(IM_GRAY, IM_FLOAT, 1);
+    DstPair cross(IM_GRAY, IM_CFLOAT);
+    im::Process::CrossCorrelation(a.plus, b.plus, cross.plus);
+    imProcessCrossCorrelation(a.c, b.c, cross.c);
+    CHECK(same_data(cross.plus.GetHandle(), cross.c));
+    CHECK(wrote_something(cross.c));
+
+    DstPair aut(IM_GRAY, IM_CFLOAT);
+    im::Process::AutoCorrelation(a.plus, aut.plus);
+    imProcessAutoCorrelation(a.c, aut.c);
+    CHECK(same_data(aut.plus.GetHandle(), aut.c));
+    CHECK(wrote_something(aut.c));
+  }
+}
+#endif /* IM_TEST_HAS_FFTW3 */
+
+TEST_CASE("plus: the Hough wrappers forward to their C functions")
+{
+  /* The accumulator's size is dictated by the header: IM_GRAY, IM_INT, 180
+     wide and 2*rmax+1 tall. Getting it wrong is refused rather than
+     tolerated, so building it correctly is part of the case. */
+  const int rmax = (int)sqrt((double)(BW*BW + BH*BH));
+  Pair src(IM_BINARY, IM_BYTE);
+  DstPair hough(IM_GRAY, IM_INT, 180, 2*rmax + 1);
+
+  CHECK(im::Process::HoughLines(src.plus, hough.plus) ==
+        imProcessHoughLines(src.c, hough.c));
+  CHECK(same_data(hough.plus.GetHandle(), hough.c));
+  CHECK(wrote_something(hough.c));
+
+  SUBCASE("HoughLinesDraw takes the accumulator and its thresholded peaks")
+  {
+    /* Four images, three of them inputs of three different kinds: the
+       original, the accumulator, and the accumulator thresholded to a binary
+       peak map. Nothing about the types prevents the middle two from being
+       exchanged, which is what this compares against C for. RGB targets so
+       the operation draws into the red plane rather than converting a gray
+       target to IM_MAP under us. */
+    DstPair peaks(IM_BINARY, IM_BYTE, 180, 2*rmax + 1);
+    REQUIRE(imProcessLocalMaxThreshold(hough.c, peaks.c, 5, 1) != 0);
+    memcpy(peaks.plus.GetHandle()->data[0], peaks.c->data[0], (size_t)peaks.c->count);
+
+    Pair picture(IM_RGB, IM_BYTE);
+    DstPair drawn_plus(IM_RGB, IM_BYTE), drawn_c(IM_RGB, IM_BYTE);
+
+    int plus_lines = im::Process::HoughLinesDraw(picture.plus, hough.plus,
+                                                 peaks.plus, drawn_plus.plus);
+    int c_lines = imProcessHoughLinesDraw(picture.c, hough.c, peaks.c, drawn_c.c);
+    CHECK(plus_lines == c_lines);
+    CHECK(same_data(drawn_plus.plus.GetHandle(), drawn_c.c));
+    CHECK(wrote_something(drawn_c.c));
+  }
+}
+
+TEST_CASE("plus: ZeroCrossing forwards to its C function")
+{
+  /* Needs a signed or real source -- it looks for sign changes, which a byte
+     image cannot have.
+
+     This case found a heap overflow rather than a wrapper problem. The
+     per-line code advanced its offsets past the last pixel of the row before
+     handling it, so it read one element beyond the source on the final row and
+     wrote column 0 of the next row in place of the last column; the same slip
+     at the end of the last line wrote one element past the destination. The
+     three assertions after the comparison are the ones that fail on the old
+     code -- and the comparison against C is not among them, because both sides
+     were wrong in the same way. */
+  Pair src(IM_GRAY, IM_FLOAT);
+  DstPair dst(IM_GRAY, IM_FLOAT);
+  CHECK(im::Process::ZeroCrossing(src.plus, dst.plus) ==
+        imProcessZeroCrossing(src.c, dst.c));
+  CHECK(same_data(dst.plus.GetHandle(), dst.c));
+  CHECK(wrote_something(dst.c));
+
+  /* Every pixel of the last column was written. It used to be skipped
+     entirely, leaving the destination's own contents there. */
+  int last_column_untouched = 0;
+  for (int y = 0; y < BH; y++)
+  {
+    float value = ((float*)dst.c->data[0])[y*BW + (BW - 1)];
+    unsigned char raw[4];
+    memcpy(raw, &value, 4);
+    if (raw[0] == 0x5A && raw[1] == 0x5A && raw[2] == 0x5A && raw[3] == 0x5A)
+      last_column_untouched++;
+  }
+  CHECK(last_column_untouched == 0);
+
+  /* And the answer does not depend on what was in the heap next door: the
+     out-of-bounds read made this differ between two runs on the same input,
+     which is how the overflow first showed up. */
+  DstPair again(IM_GRAY, IM_FLOAT);
+  REQUIRE(imProcessZeroCrossing(src.c, again.c) != 0);
+  CHECK(same_data(again.c, dst.c));
+}
+
+
+/* ------------------------------------------------------------------ *
+ * The wrappers that take a function pointer or an image array. These
+ * are the only ones in the namespace that do more than forward -- the
+ * three Multiple* and two MultiPoint* wrappers each build a C array of
+ * handles and free it -- so they are the ones where something other
+ * than argument order can go wrong, and MultipleMedian is where it
+ * had: its delete[] sat after the return.
+ * ------------------------------------------------------------------ */
+
+namespace {
+
+/* Deterministic and dependent on every argument it is given, so a wrapper that
+   passed the coordinates in the wrong order would produce a different image
+   rather than the same one. */
+double render_ramp(int x, int y, int d, double* params)
+{
+  return params[0] * x + params[1] * y + 10.0 * d;
+}
+
+double render_cond_ramp(int x, int y, int d, int* cond, double* params)
+{
+  *cond = ((x + y) % 3 != 0)? 1: 0;
+  return params[0] * x + params[1] * y + 10.0 * d;
+}
+
+int unary_point(double src_value, double* dst_value, double* params,
+                void* userdata, int x, int y, int d)
+{
+  (void)userdata;
+  *dst_value = src_value * params[0] + x + 2*y + 3*d;
+  return 1;
+}
+
+int unary_point_color(const double* src_value, double* dst_value, double* params,
+                      void* userdata, int x, int y)
+{
+  (void)userdata;
+  dst_value[0] = src_value[0] * params[0] + x - y;
+  return 1;
+}
+
+int multi_point(const double* src_value, double* dst_value, double* params,
+                void* userdata, int x, int y, int d, int src_image_count)
+{
+  (void)userdata;
+  double total = 0;
+  for (int i = 0; i < src_image_count; i++) total += src_value[i];
+  *dst_value = total * params[0] + x + 2*y + 3*d;
+  return 1;
+}
+
+int multi_point_color(double* src_value, double* dst_value, double* params,
+                      void* userdata, int x, int y, int src_image_count,
+                      int src_depth, int dst_depth)
+{
+  (void)userdata; (void)dst_depth;
+  double total = 0;
+  for (int i = 0; i < src_image_count * src_depth; i++) total += src_value[i];
+  dst_value[0] = total * params[0] + x - y;
+  return 1;
+}
+
+} /* namespace */
+
+TEST_CASE("plus: the render wrappers forward their callbacks")
+{
+  double plus_params[2] = { 1.5, 2.5 };
+  double c_params[2] = { 1.5, 2.5 };
+
+  SUBCASE("RenderOp")
+  {
+    /* The trailing "plus" flag decides whether the result is added to what is
+       already there, so the image is seeded rather than blank and the flag is
+       set -- with a blank image and plus=0 the flag would make no difference
+       and dropping it would go unnoticed. */
+    Pair image(IM_GRAY, IM_BYTE);
+    imImage* c_copy = imImageDuplicate(image.c);
+    REQUIRE(c_copy != NULL);
+
+    CHECK(im::Process::RenderOp(image.plus, render_ramp, "ramp", plus_params, 1) ==
+          imProcessRenderOp(c_copy, render_ramp, "ramp", c_params, 1));
+    CHECK(same_data(image.plus.GetHandle(), c_copy));
+    CHECK(!same_data(image.plus.GetHandle(), image.c));   /* it did render */
+    imImageDestroy(c_copy);
+  }
+  SUBCASE("RenderOpAlpha")
+  {
+    Pair image(IM_RGB|IM_ALPHA, IM_BYTE);
+    imImage* c_copy = imImageDuplicate(image.c);
+    REQUIRE(c_copy != NULL);
+    CHECK(im::Process::RenderOpAlpha(image.plus, render_ramp, "ramp", plus_params, 1) ==
+          imProcessRenderOpAlpha(c_copy, render_ramp, "ramp", c_params, 1));
+    CHECK(same_data(image.plus.GetHandle(), c_copy));
+    imImageDestroy(c_copy);
+  }
+  SUBCASE("RenderCondOp")
+  {
+    Pair image(IM_GRAY, IM_BYTE);
+    imImage* c_copy = imImageDuplicate(image.c);
+    REQUIRE(c_copy != NULL);
+    CHECK(im::Process::RenderCondOp(image.plus, render_cond_ramp, "cond", plus_params) ==
+          imProcessRenderCondOp(c_copy, render_cond_ramp, "cond", c_params));
+    CHECK(same_data(image.plus.GetHandle(), c_copy));
+    imImageDestroy(c_copy);
+  }
+  SUBCASE("RenderCondOpAlpha")
+  {
+    Pair image(IM_RGB|IM_ALPHA, IM_BYTE);
+    imImage* c_copy = imImageDuplicate(image.c);
+    REQUIRE(c_copy != NULL);
+    CHECK(im::Process::RenderCondOpAlpha(image.plus, render_cond_ramp, "cond", plus_params) ==
+          imProcessRenderCondOpAlpha(c_copy, render_cond_ramp, "cond", c_params));
+    CHECK(same_data(image.plus.GetHandle(), c_copy));
+    imImageDestroy(c_copy);
+  }
+  SUBCASE("RenderChessboard")
+  {
+    DstPair image(IM_GRAY, IM_BYTE);
+    /* Different spacings, so a wrapper that passed one twice is caught. */
+    CHECK(im::Process::RenderChessboard(image.plus, 2, 5) ==
+          imProcessRenderChessboard(image.c, 2, 5));
+    CHECK(same_data(image.plus.GetHandle(), image.c));
+    CHECK(wrote_something(image.c));
+
+    DstPair transposed(IM_GRAY, IM_BYTE);
+    imProcessRenderChessboard(transposed.c, 5, 2);
+    CHECK(!same_data(image.c, transposed.c));
+  }
+  SUBCASE("RenderLapOfGaussian")
+  {
+    DstPair image(IM_GRAY, IM_FLOAT);
+    CHECK(im::Process::RenderLapOfGaussian(image.plus, 2.0) ==
+          imProcessRenderLapOfGaussian(image.c, 2.0));
+    CHECK(same_data(image.plus.GetHandle(), image.c));
+    CHECK(wrote_something(image.c));
+  }
+  SUBCASE("RenderFloodFill")
+  {
+    /* The start point is x then y, and the image is not square, so passing
+       them the other way round reaches a different pixel. */
+    Pair image(IM_RGB, IM_BYTE);
+    double plus_color[3] = { 10.0, 20.0, 30.0 };
+    double c_color[3] = { 10.0, 20.0, 30.0 };
+    im::Process::RenderFloodFill(image.plus, 3, 7, plus_color, 40.0);
+    imProcessRenderFloodFill(image.c, 3, 7, c_color, 40.0);
+    CHECK(same_data(image.plus.GetHandle(), image.c));
+    CHECK(wrote_something(image.c));
+  }
+}
+
+TEST_CASE("plus: the point-operation wrappers forward their callbacks")
+{
+  double plus_params[1] = { 2.0 };
+  double c_params[1] = { 2.0 };
+
+  SUBCASE("UnaryPointOp")
+  {
+    Pair src(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::UnaryPointOp(src.plus, dst.plus, unary_point,
+                                    plus_params, NULL, "unary") ==
+          imProcessUnaryPointOp(src.c, dst.c, unary_point, c_params, NULL, "unary"));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("UnaryPointColorOp")
+  {
+    Pair src(IM_RGB, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::UnaryPointColorOp(src.plus, dst.plus, unary_point_color,
+                                         plus_params, NULL, "unary color") ==
+          imProcessUnaryPointColorOp(src.c, dst.c, unary_point_color, c_params,
+                                     NULL, "unary color"));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("MultiPointOp")
+  {
+    /* One of the two wrappers that allocates: it copies the handles out of the
+       C++ array into a C one, so a wrong index or a missed element shows up as
+       a different result rather than a crash. Three sources, all different. */
+    im::Image a(BW, BH, IM_GRAY, IM_BYTE);
+    im::Image b(BW, BH, IM_GRAY, IM_BYTE);
+    im::Image c(BW, BH, IM_GRAY, IM_BYTE);
+    REQUIRE(!a.Failed()); REQUIRE(!b.Failed()); REQUIRE(!c.Failed());
+    seed(a.GetHandle());
+    for (int i = 0; i < a.GetHandle()->count; i++)
+    {
+      ((imbyte*)b.GetHandle()->data[0])[i] = (imbyte)((i * 3 + 5) & 0x7F);
+      ((imbyte*)c.GetHandle()->data[0])[i] = (imbyte)((i * 11 + 9) & 0x7F);
+    }
+
+    im::Image list[3] = { a, b, c };
+    const imImage* c_list[3] = { a.GetHandle(), b.GetHandle(), c.GetHandle() };
+
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::MultiPointOp(list, 3, dst.plus, multi_point,
+                                    plus_params, NULL, "multi") ==
+          imProcessMultiPointOp(c_list, 3, dst.c, multi_point, c_params, NULL, "multi"));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("MultiPointColorOp")
+  {
+    im::Image a(BW, BH, IM_RGB, IM_BYTE);
+    im::Image b(BW, BH, IM_RGB, IM_BYTE);
+    REQUIRE(!a.Failed()); REQUIRE(!b.Failed());
+    seed(a.GetHandle());
+    for (int p = 0; p < 3; p++)
+      for (int i = 0; i < b.GetHandle()->count; i++)
+        ((imbyte*)b.GetHandle()->data[p])[i] = (imbyte)((i * 5 + p * 17) & 0x7F);
+
+    im::Image list[2] = { a, b };
+    const imImage* c_list[2] = { a.GetHandle(), b.GetHandle() };
+
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::MultiPointColorOp(list, 2, dst.plus, multi_point_color,
+                                         plus_params, NULL, "multi color") ==
+          imProcessMultiPointColorOp(c_list, 2, dst.c, multi_point_color, c_params,
+                                     NULL, "multi color"));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}
+
+TEST_CASE("plus: the multiple-image wrappers forward their arrays")
+{
+  /* Three images that differ, so a mean, a median and a standard deviation
+     are all distinguishable from each other and from any one input. */
+  im::Image a(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image b(BW, BH, IM_GRAY, IM_BYTE);
+  im::Image c(BW, BH, IM_GRAY, IM_BYTE);
+  REQUIRE(!a.Failed()); REQUIRE(!b.Failed()); REQUIRE(!c.Failed());
+  seed(a.GetHandle());
+  for (int i = 0; i < a.GetHandle()->count; i++)
+  {
+    ((imbyte*)b.GetHandle()->data[0])[i] = (imbyte)((i * 3 + 5) & 0x7F);
+    ((imbyte*)c.GetHandle()->data[0])[i] = (imbyte)((i * 11 + 9) & 0x7F);
+  }
+
+  im::Image list[3] = { a, b, c };
+  const imImage* c_list[3] = { a.GetHandle(), b.GetHandle(), c.GetHandle() };
+
+  SUBCASE("MultipleMean")
+  {
+    DstPair dst(IM_GRAY, IM_BYTE);
+    im::Process::MultipleMean(list, 3, dst.plus);
+    imProcessMultipleMean(c_list, 3, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+    CHECK(!same_data(dst.c, a.GetHandle()));    /* and it combined them */
+  }
+  SUBCASE("MultipleMedian")
+  {
+    /* The one that leaked. Its delete[] was written after the return, so the
+       array of handles was abandoned on every call -- invisible here on macOS,
+       where there is no LeakSanitizer, but caught by the Linux sanitizer job
+       now that something calls it. */
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::MultipleMedian(list, 3, dst.plus) ==
+          imProcessMultipleMedian(c_list, 3, dst.c));
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    /* Called repeatedly, so a leak of the handle array is worth reporting as
+       a growing total rather than a single block. */
+    for (int repeat = 0; repeat < 32; repeat++)
+      CHECK(im::Process::MultipleMedian(list, 3, dst.plus) != 0);
+  }
+  SUBCASE("MultipleStdDev")
+  {
+    /* Takes the mean as a fourth argument, between the array and the
+       destination, and it has to be the mean of the same set. */
+    DstPair mean(IM_GRAY, IM_BYTE);
+    imProcessMultipleMean(c_list, 3, mean.c);
+    memcpy(mean.plus.GetHandle()->data[0], mean.c->data[0], (size_t)mean.c->count);
+
+    DstPair dst(IM_GRAY, IM_BYTE);
+    im::Process::MultipleStdDev(list, 3, mean.plus, dst.plus);
+    imProcessMultipleStdDev(c_list, 3, mean.c, dst.c);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+}

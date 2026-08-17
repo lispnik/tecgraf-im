@@ -16,9 +16,30 @@
 #include "im_math_op.h"
 
 #include <stdlib.h>
+#include <limits>
 #include <memory.h>
 #include <assert.h>
 
+
+/* The callback returns a double and the destination may be a narrower integer
+   type. Converting an out-of-range double to an integer type is undefined
+   behaviour rather than a wrap -- UndefinedBehaviorSanitizer reports it -- and
+   nothing in the documented contract asks the callback to keep inside the
+   destination's range, so the clamp belongs on this side of the call. Values
+   that already fit convert exactly as before, truncating toward zero, so only
+   the out-of-range ones change: from undefined to saturated, which is what the
+   rest of this library does when it narrows. */
+template <class T>
+static inline T point_cast(const double& value)
+{
+  if (value < (double)(std::numeric_limits<T>::lowest)())
+    return (std::numeric_limits<T>::lowest)();
+  if (value > (double)(std::numeric_limits<T>::max)())
+    return (std::numeric_limits<T>::max)();
+  return (T)value;
+}
+
+template <> inline double point_cast<double>(const double& value) { return value; }
 
 template <class T1, class T2> 
 static int DoUnaryPointOp(T1 *src_map, T2 *dst_map, int width, int height, int depth, imUnaryPointOpFunc func, double* params, void* userdata, int counter)
@@ -46,7 +67,7 @@ static int DoUnaryPointOp(T1 *src_map, T2 *dst_map, int width, int height, int d
     int x = offset - y*width;
 
     if (func((double)src_map[i], &dst_value, params, userdata, x, y, d))
-      dst_map[i] = (T2)dst_value;
+      dst_map[i] = point_cast<T2>(dst_value);
 
     if (x == width-1)
     {
@@ -204,7 +225,7 @@ static int DoUnaryPointColorOp(T1 **src_map, T2 **dst_map, int width, int height
     if (func(src_value, dst_value, params, userdata, x, y))
     {
       for(d = 0; d < dst_depth; d++)
-        (dst_map[d])[i] = (T2)dst_value[d];
+        (dst_map[d])[i] = point_cast<T2>(dst_value[d]);
     }
 
     if (x == width-1)
@@ -363,7 +384,7 @@ static int DoMultiPointOp(T1 **src_map, T2 *dst_map, int width, int height, int 
       src_value[toffset + j] = (double)(src_map[j])[i];
 
     if (func(src_value + toffset, &dst_value, params, userdata, x, y, d, src_count))
-      dst_map[i] = (T2)dst_value;
+      dst_map[i] = point_cast<T2>(dst_value);
 
     if (x == width-1)
     {
@@ -519,7 +540,7 @@ static int DoMultiPointColorOp(T1 ***src_map, T2 **dst_map, int width, int heigh
     if (func(src_value + toffset, dst_value, params, userdata, x, y, src_count, src_depth, dst_depth))
     {
       for(int d = 0; d < dst_depth; d++)
-        (dst_map[d])[i] = (T2)dst_value[d];
+        (dst_map[d])[i] = point_cast<T2>(dst_value[d]);
     }
 
     if (x == width-1)

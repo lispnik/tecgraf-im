@@ -127,6 +127,32 @@ compensate must stop.
 Defects where the old behaviour was not something anything could reasonably
 have depended on.
 
+- **`imProcessBinThinNhMaps` never returned.** Its pass loop stops when a pass
+  deletes nothing, but the neighbourhood map at the left edge marked
+  already-zero pixels as deletable and each was counted as a deletion, so the
+  count never reached zero. Each of the three tests now checks the pixel is set
+  before counting it, which suppresses only stores of 0 over a 0 — so the
+  thinned image is unchanged and the passes stop at the first one that removes
+  nothing.
+- **`imProcessZeroCrossing` read and wrote outside both images.** The per-line
+  code advanced its offsets past the last pixel of the row before handling it,
+  so on the final row it read one element beyond the source, and it wrote
+  column 0 of the next row in place of the last column — which was therefore
+  never written at all. The same slip at the end of the last line wrote one
+  element past the destination. Results also varied between runs on the same
+  input, since the out-of-bounds read picked up whatever was next in the heap.
+- **`imProcessDirectConv` and `imProcessUnNormalize` were impossible to call.**
+  Both write an `IM_BYTE` destination from a wider source, so the
+  same-data-type precondition added by this fork's own precondition audit could
+  never hold: the guard beside it returned immediately, making both functions a
+  no-op in a release build and an abort in a debug one. They now check what they
+  actually require — the geometry, the plane count, and an `IM_BYTE`
+  destination. Introduced in this fork, not upstream, and not caught at the
+  time because nothing in the tree called either function.
+- **`im::Process::MultipleMedian` leaked on every call.** The wrapper builds an
+  array of image handles for the C function and its `delete[]` was written after
+  the `return`. No compiler warned, because nothing had ever instantiated the
+  function.
 - **`imBinFileReadLine` returned every line with a leading zero byte.** It
   stored its loop variable before the first read, so the result was a zero
   followed by the line, with `*size` counting it. The two callers in the
@@ -198,6 +224,14 @@ have depended on.
 
 Undefined behaviour that is now defined. Correct callers see no difference.
 
+- **A point-operation callback could return a value the destination cannot
+  hold.** `imProcessUnaryPointOp`, `imProcessUnaryPointColorOp`,
+  `imProcessMultiPointOp` and `imProcessMultiPointColorOp` hand the callback a
+  `double` and converted the result straight to the destination's type.
+  Converting an out-of-range `double` to an integer type is undefined
+  behaviour rather than a wrap, and nothing in the documented contract asks the
+  callback to stay inside the destination's range. The four drivers now
+  saturate instead. Values that already fit convert exactly as before.
 - **Integer division by zero.** `IM_UN_INV` and `IM_BIN_DIV` reached `1/0` and
   `a/0` for any zero sample — a black pixel. That is undefined, and undefined
   in the way that diverges between machines: SIGFPE on x86, a quiet 0 on ARM.

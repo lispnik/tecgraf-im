@@ -529,8 +529,14 @@ static void DoUnNormalize(T* map, imbyte* new_map, int count)
 
 void imProcessUnNormalize(const imImage* src_image, imImage* dst_image)
 {
-  assert(imCheckSameTypeSize(src_image, dst_image));
-  if (!imCheckSameTypeSize(src_image, dst_image))
+  /* Not the same-type check: this writes an IM_BYTE destination from a real
+     source, so the two types are never equal in a valid call. */
+  assert(dst_image->data_type == IM_BYTE);
+  assert(src_image->data_type == IM_FLOAT || src_image->data_type == IM_DOUBLE);
+  assert(imCheckSameSize(src_image, dst_image));
+  if (dst_image->data_type != IM_BYTE ||
+      (src_image->data_type != IM_FLOAT && src_image->data_type != IM_DOUBLE) ||
+      !imCheckSameSize(src_image, dst_image))
     return ;
 
   int count = src_image->count*src_image->depth;
@@ -561,8 +567,14 @@ static void DoDirectConv(T* map, imbyte* new_map, int count)
 
 void imProcessDirectConv(const imImage* src_image, imImage* dst_image)
 {
-  assert(imCheckSameTypeSize(src_image, dst_image));
-  if (!imCheckSameTypeSize(src_image, dst_image))
+  /* Same reasoning as imProcessUnNormalize: the whole point is to narrow a
+     wider type into IM_BYTE, so what has to match is the geometry and the
+     plane count, not the type. The switch below silently does nothing for an
+     IM_BYTE source, which is the one type it is not meant to be given. */
+  assert(dst_image->data_type == IM_BYTE);
+  assert(src_image->data_type != IM_BYTE);
+  assert(imCheckSameSize(src_image, dst_image));
+  if (dst_image->data_type != IM_BYTE || !imCheckSameSize(src_image, dst_image))
     return ;
 
   int count = src_image->count*src_image->depth;
