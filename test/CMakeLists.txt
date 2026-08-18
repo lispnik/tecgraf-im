@@ -21,6 +21,15 @@ add_executable(im_tests
     test_misc.cpp
     test_datatype.cpp)
 
+# Capture is an optional add-on too, and unlike the others its tests are worth
+# having even where the backend is the do-nothing stub: the device-list
+# contract is the same on every platform, and the case that matters most --
+# the pixel conversion -- runs on synthetic buffers with no camera at all.
+if(TARGET im_capture)
+    target_sources(im_tests PRIVATE test_capture.cpp)
+    target_link_libraries(im_tests PRIVATE im_capture)
+endif()
+
 # The HEIF driver is an optional add-on, so its tests compile only when it is
 # built. Everything else in im_tests is unconditional.
 if(TARGET im_heif)

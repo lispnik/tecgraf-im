@@ -900,17 +900,25 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
    32BGRA is B,G,R,A in memory, which is the same channel order the DirectShow
    backend consumes, so the assignments below line up with im_capture_dx.cpp
    one for one apart from skipping the alpha byte. */
-static void vc_ConvertFrame(CVPixelBufferRef buffer, unsigned char* data,
-                            int color_mode, int width, int height)
+/* Deliberately takes a plain buffer and a stride rather than a
+   CVPixelBufferRef, and deliberately has external linkage: it is the only part
+   of this backend whose correctness cannot be established from a camera. The
+   two ways to get it wrong -- an image upside down, or red and blue exchanged
+   -- both produce a perfectly plausible picture, and neither shows up at all
+   in the uniform frame a camera returns in a dark room. test_capture.cpp
+   declares it and feeds it synthetic buffers with known contents, which pins
+   the flip, the stride handling, the channel order and the luma exactly, on
+   every platform, with no hardware. Not part of the public API and not in
+   im_capture.def. */
+void imVideoCaptureConvertBGRA(const unsigned char* base, int stride,
+                               unsigned char* data, int color_mode,
+                               int width, int height)
 {
-  const unsigned char* base =
-    (const unsigned char*)CVPixelBufferGetBaseAddress(buffer);
-  const int stride = (int)CVPixelBufferGetBytesPerRow(buffer);
   const int count  = width * height;
   const int space  = imColorModeSpace(color_mode);
   const int packed = imColorModeIsPacked(color_mode);
 
-  if (!base)
+  if (!base || !data)
     return;
 
   for (int y = 0; y < height; y++)
@@ -970,6 +978,15 @@ static void vc_ConvertFrame(CVPixelBufferRef buffer, unsigned char* data,
       }
     }
   }
+}
+
+static void vc_ConvertFrame(CVPixelBufferRef buffer, unsigned char* data,
+                            int color_mode, int width, int height)
+{
+  imVideoCaptureConvertBGRA(
+    (const unsigned char*)CVPixelBufferGetBaseAddress(buffer),
+    (int)CVPixelBufferGetBytesPerRow(buffer),
+    data, color_mode, width, height);
 }
 
 int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode, int timeout)
