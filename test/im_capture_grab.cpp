@@ -81,17 +81,17 @@ int main(int argc, char** argv)
     printf("\n");
   }
 
+  /* Start briefly to learn the size the camera will actually deliver: that is
+     only settled once the session is running. */
   if (!imVideoCaptureLive(vc, 1))
   {
     fprintf(stderr, "could not start the capture\n");
     imVideoCaptureDestroy(vc);
     return 1;
   }
-
-  /* Read the size again: starting the session is where it becomes
-     authoritative, because a preset set while stopped only takes effect
-     then. */
   imVideoCaptureGetImageSize(vc, &width, &height);
+  imVideoCaptureLive(vc, 0);
+
   printf("capturing %d x %d %s\n", width, height, as_gray? "gray": "rgb");
 
   imImage* image = imImageCreate(width, height,
@@ -102,12 +102,14 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  /* Generous, because the first frame after starting a camera can be a second
-     or more away while exposure and white balance settle. */
-  if (!imVideoCaptureFrame(vc, (unsigned char*)image->data[0],
-                           image->color_space, 5000))
+  /* OneFrame rather than Live plus Frame, for the warm-up: a camera's first
+     frames are black while its exposure converges, so grabbing the first thing
+     that arrives produces a picture that looks like a bug in this library
+     rather than a camera that has not woken up yet. */
+  if (!imVideoCaptureOneFrame(vc, (unsigned char*)image->data[0],
+                              image->color_space))
   {
-    fprintf(stderr, "no frame arrived within 5 seconds\n");
+    fprintf(stderr, "no frame arrived\n");
     imImageDestroy(image);
     imVideoCaptureDestroy(vc);
     return 1;
@@ -119,7 +121,6 @@ int main(int argc, char** argv)
   else
     printf("wrote %s\n", path);
 
-  imVideoCaptureLive(vc, 0);
   imVideoCaptureDisconnect(vc);
   imVideoCaptureDestroy(vc);
   imImageDestroy(image);

@@ -304,6 +304,11 @@ struct _imVideoCapture
   int              slot_full;
   int              stopping;   /* set by Disconnect to release a blocked Frame */
 
+  /* Set once a delivered frame has told us the real size. Until then the
+     delegate accepts whatever arrives instead of checking it, because there is
+     nothing trustworthy to check against yet -- see vc_LearnDeliveredSize. */
+  int              size_known;
+
   /* The public format numbering: the session presets this device accepts, in
      increasing size. The same job the reference's format_map[] does for
      DirectShow's enumeration. */
@@ -342,6 +347,18 @@ struct _imVideoCapture
      frame; converting it corrupts the heap. */
   int buffer_width  = (int)CVPixelBufferGetWidth(buffer);
   int buffer_height = (int)CVPixelBufferGetHeight(buffer);
+
+  if (!vc->stopping && !vc->size_known)
+  {
+    /* The first frame is the authority on the size. Adopt it rather than
+       measure it against a guess: everything AVFoundation offers beforehand --
+       the device's activeFormat, the session's preset, the input port's format
+       description -- has been observed to disagree with what is actually
+       delivered. */
+    vc->width  = buffer_width;
+    vc->height = buffer_height;
+    vc->size_known = 1;
+  }
 
   if (!vc->stopping && buffer_width == vc->width && buffer_height == vc->height)
   {
@@ -673,6 +690,52 @@ static int vc_CheckAuthorization(void)
                          Connection lifecycle
 *************************************************************************/
 
+/* Runs the session until a frame arrives, so the delegate can record the size
+   that is really being delivered. Returns non-zero if it learned one.
+
+   This exists because nothing AVFoundation will tell you in advance is
+   reliable. Measured on one camera, in one session: AVCaptureDevice
+   .activeFormat said 640x480, the input port said 1920x1080, and the delivery
+   was 1920x1080; later, after the device's activeFormat had been changed by
+   another process, the port said 1280x720 and the delivery was still
+   1920x1080. Each of those was tried as the source of truth and each was wrong
+   in some configuration. A frame that has actually arrived cannot be.
+
+   The cost is that Connect runs the camera for a moment. That buys a
+   GetImageSize which is correct however the caller sequences its calls, and it
+   removes the failure this replaces -- every frame silently dropped for a size
+   mismatch, with imVideoCaptureFrame returning 0 for ever. */
+static int vc_LearnDeliveredSize(imVideoCapture* vc)
+{
+  [vc->session startRunning];
+  if (!vc->session.isRunning)
+    return 0;
+
+  uint64_t deadline = clock_gettime_nsec_np(CLOCK_MONOTONIC)
+                    + 2000ull * 1000000ull;      /* 2s: generous for a cold camera */
+
+  pthread_mutex_lock(&vc->slot_mutex);
+  while (!vc->size_known && !vc->stopping)
+  {
+    uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
+    if (now >= deadline)
+      break;
+
+    uint64_t remaining = deadline - now;
+    struct timespec ts;
+    ts.tv_sec  = (time_t)(remaining / 1000000000ull);
+    ts.tv_nsec = (long)  (remaining % 1000000000ull);
+    if (pthread_cond_timedwait_relative_np(&vc->slot_cond, &vc->slot_mutex, &ts) != 0)
+      break;
+  }
+  int learned = vc->size_known;
+  vc_FlushSlotLocked(vc);      /* the frame was for measuring, not for keeping */
+  pthread_mutex_unlock(&vc->slot_mutex);
+
+  [vc->session stopRunning];
+  return learned;
+}
+
 /* The size the camera will actually deliver, read from the input's port.
 
    Not AVCaptureDevice.activeFormat, and not the preset's name either: the port
@@ -766,6 +829,7 @@ void imVideoCaptureDisconnect(imVideoCapture* vc)
     vc->device = -1;
     vc->width = 0;
     vc->height = 0;
+    vc->size_known = 0;
   }
 }
 
@@ -911,9 +975,15 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
     vc->output    = output;
     vc->delegate  = delegate;
     vc->queue     = queue;
-    vc->width     = dimensions.width;
-    vc->height    = dimensions.height;
-    vc->device    = device;
+    vc->width      = dimensions.width;    /* provisional, see below */
+    vc->height     = dimensions.height;
+    vc->size_known = 0;
+    vc->device     = device;
+
+    /* Replace the guess with the truth, by running the camera until a frame
+       arrives and taking its dimensions. If nothing arrives the port's figure
+       stands, which is the best guess available and no worse than before. */
+    vc_LearnDeliveredSize(vc);
 
     return 1;
   }
@@ -964,21 +1034,6 @@ int imVideoCaptureLive(imVideoCapture* vc, int live)
          loop. */
       if (!vc->session.isRunning)
         return 0;
-
-      /* Now that it is running the port is authoritative, so this is the
-         moment the advertised size becomes reliable -- a preset set while the
-         session was idle only takes effect here. Updated under the lock
-         because the delegate tests every arriving buffer against it. */
-      int negotiated_width = 0, negotiated_height = 0;
-      vc_ReadNegotiatedSize(vc, &negotiated_width, &negotiated_height);
-
-      if (negotiated_width > 0 && negotiated_height > 0)
-      {
-        pthread_mutex_lock(&vc->slot_mutex);
-        vc->width  = negotiated_width;
-        vc->height = negotiated_height;
-        pthread_mutex_unlock(&vc->slot_mutex);
-      }
 
       vc->live = 1;
       return 1;
@@ -1055,14 +1110,12 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
     [vc->session commitConfiguration];
 
     pthread_mutex_lock(&vc->slot_mutex);
-    vc->width  = width;
-    vc->height = height;
+    vc->size_known = 0;              /* the old measurement is stale */
     vc_FlushSlotLocked(vc);          /* whatever is queued is the old size */
     pthread_mutex_unlock(&vc->slot_mutex);
 
-    /* Now find out whether that actually took, which means starting the
-       session: the input port is the only authority on the delivered size and
-       it does not track a preset change made while stopped.
+    /* Now find out whether that actually took, which means running the camera
+       again and looking at what comes out.
 
        Accepting the preset is not the same as honouring it. Measured on a
        FaceTime HD camera: canSetSessionPreset agreed to 352x288, the preset
@@ -1075,13 +1128,13 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
        The cost is that a setter briefly runs the camera, LED and all, when it
        was not already running. That is worth it to be able to answer
        truthfully; the alternative is a confident wrong answer. */
-    if (!imVideoCaptureLive(vc, 1))
+    if (!vc_LearnDeliveredSize(vc))
       return 0;
 
     int delivered_width = vc->width, delivered_height = vc->height;
 
-    if (!was_live)
-      imVideoCaptureLive(vc, 0);
+    if (was_live && !imVideoCaptureLive(vc, 1))
+      return 0;
 
     if (delivered_width != width || delivered_height != height)
       return 0;   /* width/height now hold the truth, whatever it is */
@@ -1092,6 +1145,34 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
 
 /* How long OneFrame waits for its frame, in milliseconds. */
 #define VC_ONEFRAME_TIMEOUT 5000
+
+/* How long OneFrame throws frames away before keeping one, in milliseconds.
+
+   A camera does not produce a usable picture the instant it starts: auto
+   exposure and white balance have to converge. Measured on a FaceTime HD
+   camera in a normally lit room, taking the red channel's mean over the whole
+   frame -- 0 to 255:
+
+     frame  0-2    ~1     black
+     frame  3      115    exposure has jumped
+     frame  24     131    settled
+
+   So the first three frames are useless and about the fourth is fine. Without
+   this, OneFrame returns frame 0 every time and every picture it takes is
+   black -- which is exactly what happened while this was being written, and it
+   was mistaken for the room being dark.
+
+   500ms is roughly fifteen frames at 30fps, past the jump and most of the way
+   to settled. The reference does the same thing with Sleep(VC_CAMERADELAY) at
+   im_capture_dx.cpp:894, though its 200 is admittedly a guess -- "this vary
+   from camera to camera, so we use a reasonable value and hope it will work
+   for all". This one is at least measured on a camera.
+
+   Deliberately not applied to Live() or Frame(). A caller polling Frame in a
+   loop, which is what a preview does, watches the picture converge by itself;
+   charging every such caller half a second at startup to fix a problem only
+   OneFrame has would be the wrong trade. */
+#define VC_ONEFRAME_WARMUP 500
 
 /* One BGRA frame into the layout the caller asked for.
 
@@ -1291,6 +1372,35 @@ int imVideoCaptureOneFrame(imVideoCapture* vc, unsigned char* data, int color_mo
   pthread_mutex_lock(&vc->slot_mutex);
   vc_FlushSlotLocked(vc);
   pthread_mutex_unlock(&vc->slot_mutex);
+
+  /* Then throw away everything the camera produces while it works out its
+     exposure, and keep the frame after that. See VC_ONEFRAME_WARMUP. */
+  if (!was_live)
+  {
+    uint64_t until = clock_gettime_nsec_np(CLOCK_MONOTONIC)
+                   + (uint64_t)VC_ONEFRAME_WARMUP * 1000000ull;
+
+    while (clock_gettime_nsec_np(CLOCK_MONOTONIC) < until)
+    {
+      pthread_mutex_lock(&vc->slot_mutex);
+
+      if (!vc->slot_full && !vc->stopping)
+      {
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = 50 * 1000000L;      /* 50ms: a frame and a half at 30fps */
+        pthread_cond_timedwait_relative_np(&vc->slot_cond, &vc->slot_mutex, &ts);
+      }
+
+      vc_FlushSlotLocked(vc);
+      int stopping = vc->stopping;
+
+      pthread_mutex_unlock(&vc->slot_mutex);
+
+      if (stopping)
+        break;
+    }
+  }
 
   /* Deviation from im_capture_dx.cpp:917, which passes -1 and waits forever.
      A camera that is present but never delivers -- a stalled virtual camera, a
