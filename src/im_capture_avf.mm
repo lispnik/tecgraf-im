@@ -202,12 +202,25 @@ static int vc_CheckDeviceList(int device)
    tells the session to defer to the device; that constant does not exist on
    macOS.
 
-   So the settable sizes are exactly the size-named presets, and this table is
-   all of them. imVideoCaptureGetFormat lists the subset a given device
-   accepts and imVideoCaptureSetImageSize sets one, which keeps the two
-   consistent: everything the caller is offered is something it can have.
-   Enumerating AVCaptureDevice.formats instead advertised nineteen sizes on
-   this camera, of which six could actually be selected. */
+   So the settable sizes are the size-named presets, and this table is all of
+   them. imVideoCaptureGetFormat lists the subset a device's session accepts.
+
+   Accepting is not honouring, and the gap is wider than it ought to be. On a
+   FaceTime HD camera, canSetSessionPreset agrees to every entry below, the
+   preset reads back as the one that was set, and the session delivers
+   1920x1080 regardless -- with a matching AVCaptureDevice.activeFormat set at
+   the same time as well, which is the only combination left to try. Measured
+   directly against AVFoundation rather than through this file, so it is the
+   framework's behaviour on this hardware, not a bug here: an
+   AVCaptureVideoDataOutput on that camera hands back the sensor's native size
+   whatever it is asked for.
+
+   Which leaves GetFormat listing candidates rather than guarantees, and
+   imVideoCaptureSetImageSize as the only authority -- it starts the session to
+   find out what actually arrives, and refuses anything else. A GetFormat that
+   only ever offered guarantees would have to probe every preset at connect
+   time, which is a second apiece with the camera light coming on for each, and
+   that is too high a price for a list. */
 
 struct vcPreset
 {
@@ -1041,29 +1054,37 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
     vc->session.sessionPreset = wanted;
     [vc->session commitConfiguration];
 
-    /* The preset's name is the size, and canSetSessionPreset has already
-       agreed to it, so this is what the caller is told -- the port cannot be
-       consulted yet, since it does not track a preset change while the session
-       is stopped. Updated before anything restarts, because the delegate tests
-       every arriving buffer against it. */
     pthread_mutex_lock(&vc->slot_mutex);
     vc->width  = width;
     vc->height = height;
     vc_FlushSlotLocked(vc);          /* whatever is queued is the old size */
     pthread_mutex_unlock(&vc->slot_mutex);
 
-    if (was_live)
-    {
-      /* Restarting refreshes the size from the port, which is authoritative
-         once running -- so if the session quietly gave us something else, the
-         width and height are corrected here and the disagreement is reported
-         rather than left to show up as every frame being dropped. */
-      if (!imVideoCaptureLive(vc, 1))
-        return 0;
+    /* Now find out whether that actually took, which means starting the
+       session: the input port is the only authority on the delivered size and
+       it does not track a preset change made while stopped.
 
-      if (vc->width != width || vc->height != height)
-        return 0;
-    }
+       Accepting the preset is not the same as honouring it. Measured on a
+       FaceTime HD camera: canSetSessionPreset agreed to 352x288, the preset
+       read back as 352x288, and the session went on delivering 1920x1080. So
+       without this the call returns success for a size the caller will never
+       receive, which is precisely the failure the exact-match rule exists to
+       avoid -- and the caller cannot tell, because GetImageSize repeats the
+       size that was asked for.
+
+       The cost is that a setter briefly runs the camera, LED and all, when it
+       was not already running. That is worth it to be able to answer
+       truthfully; the alternative is a confident wrong answer. */
+    if (!imVideoCaptureLive(vc, 1))
+      return 0;
+
+    int delivered_width = vc->width, delivered_height = vc->height;
+
+    if (!was_live)
+      imVideoCaptureLive(vc, 0);
+
+    if (delivered_width != width || delivered_height != height)
+      return 0;   /* width/height now hold the truth, whatever it is */
 
     return 1;
   }
@@ -1286,9 +1307,11 @@ int imVideoCaptureOneFrame(imVideoCapture* vc, unsigned char* data, int color_mo
 
 /* FormatCount and GetFormat are implemented; SetFormat is not.
 
-   Reading the list is what makes SetImageSize usable: im_capture.h:186 names
-   GetFormat as the way to discover valid sizes, so with both stubbed a caller
-   could only guess and check. Setting a format is a different matter -- the
+   Reading the list is what makes SetImageSize usable at all: im_capture.h:186
+   names GetFormat as the way to discover valid sizes, so with both stubbed a
+   caller could only guess. The list is candidates rather than guarantees --
+   see the note on vc_PresetTable, and expect SetImageSize to refuse some of
+   them, on some cameras all but one. Setting a format is a different matter -- the
    API's notion of a format is a size plus an encoding, this backend asks the
    driver for BGRA regardless, and so the only part of a format selection that
    would mean anything here is the size, which SetImageSize already does. */

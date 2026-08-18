@@ -181,6 +181,23 @@ Alternatively, grant camera access to your terminal in System Settings ->
 Privacy & Security -> Camera, and every command line program it launches
 inherits it.
 
+### Changing the capture size often does not work
+
+`imVideoCaptureGetFormat` lists the sizes a device's session accepts and
+`imVideoCaptureSetImageSize` sets one, but on macOS accepting is not honouring.
+Measured against AVFoundation directly, on a FaceTime HD camera: every
+size-named preset is accepted, reads back as set, and the session goes on
+delivering the sensor's native 1920x1080 — including when a matching
+`AVCaptureDevice.activeFormat` is set alongside it. That is the framework's
+behaviour with an `AVCaptureVideoDataOutput` on that hardware, not something
+the library can work around.
+
+So treat `GetFormat` as candidates and `SetImageSize`'s return value as the
+answer. It starts the session to find out what actually arrives and returns 0
+for anything else, rather than reporting a success the caller would only
+discover was false when the frames came back the wrong size. Expect it to
+refuse — on some cameras, everything except the size it is already at.
+
 ### Testing capture
 
 `ctest` covers what can be covered without hardware, which is more than it
