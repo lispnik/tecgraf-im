@@ -186,6 +186,68 @@ static int vc_CheckDeviceList(int device)
 
 
 /*************************************************************************
+                          Sizes and formats
+*************************************************************************/
+
+/* Resolution on macOS is decided by the session's preset, NOT by
+   AVCaptureDevice.activeFormat.
+
+   Worth stating plainly, because the opposite is the natural assumption, the
+   device happily accepts the format, and the disagreement is silent. Measured
+   on a Logitech BRIO: after setting activeFormat to 176x144 the device
+   reported activeFormat as 176x144 while the session's input port -- which is
+   what the camera actually delivers -- still reported 1920x1080, with the
+   preset sitting at AVCaptureSessionPresetHigh, and frames kept arriving at
+   1920x1080. iOS resolves this with AVCaptureSessionPresetInputPriority, which
+   tells the session to defer to the device; that constant does not exist on
+   macOS.
+
+   So the settable sizes are exactly the size-named presets, and this table is
+   all of them. imVideoCaptureGetFormat lists the subset a given device
+   accepts and imVideoCaptureSetImageSize sets one, which keeps the two
+   consistent: everything the caller is offered is something it can have.
+   Enumerating AVCaptureDevice.formats instead advertised nineteen sizes on
+   this camera, of which six could actually be selected. */
+
+struct vcPreset
+{
+  __unsafe_unretained AVCaptureSessionPreset name;
+  int width, height;
+};
+
+static vcPreset vc_PresetTable[] =
+{
+  { AVCaptureSessionPreset320x240,    320,  240 },
+  { AVCaptureSessionPreset352x288,    352,  288 },
+  { AVCaptureSessionPreset640x480,    640,  480 },
+  { AVCaptureSessionPreset960x540,    960,  540 },
+  { AVCaptureSessionPreset1280x720,  1280,  720 },
+  { AVCaptureSessionPreset1920x1080, 1920, 1080 },
+  { AVCaptureSessionPreset3840x2160, 3840, 2160 },
+};
+
+#define VC_PRESET_COUNT ((int)(sizeof(vc_PresetTable)/sizeof(vc_PresetTable[0])))
+
+/* The size a preset names, or 0x0 for one not in the table -- which includes
+   the defaults, Photo/High/Medium/Low, whose dimensions are deliberately
+   unspecified and device-dependent. */
+static void vc_PresetSize(AVCaptureSessionPreset preset, int* width, int* height)
+{
+  *width = 0;
+  *height = 0;
+  for (int i = 0; i < VC_PRESET_COUNT; i++)
+  {
+    if ([preset isEqualToString:vc_PresetTable[i].name])
+    {
+      *width  = vc_PresetTable[i].width;
+      *height = vc_PresetTable[i].height;
+      return;
+    }
+  }
+}
+
+
+/*************************************************************************
                           The capture handle
 *************************************************************************/
 
@@ -228,6 +290,11 @@ struct _imVideoCapture
   CVPixelBufferRef slot_buffer;
   int              slot_full;
   int              stopping;   /* set by Disconnect to release a blocked Frame */
+
+  /* The public format numbering: the session presets this device accepts, in
+     increasing size. The same job the reference's format_map[] does for
+     DirectShow's enumeration. */
+  NSArray<AVCaptureSessionPreset>* format_list;
 };
 
 
@@ -593,6 +660,28 @@ static int vc_CheckAuthorization(void)
                          Connection lifecycle
 *************************************************************************/
 
+/* The size the camera will actually deliver, read from the input's port.
+
+   Not AVCaptureDevice.activeFormat, and not the preset's name either: the port
+   is what the delivered frames follow. It is populated once the input has been
+   added and the configuration committed, but it does NOT track a preset change
+   made while the session is stopped -- measured: after setting the preset to
+   352x288 with the session idle, the preset read back as 352x288 while the
+   port still said 1920x1080. It catches up when the session starts, which is
+   why Live() refreshes from it and why that is the last word. */
+static void vc_ReadNegotiatedSize(imVideoCapture* vc, int* width, int* height)
+{
+  CMVideoDimensions size = { 0, 0 };
+
+  AVCaptureInputPort* port = vc->input.ports.firstObject;
+  if (port && port.formatDescription)
+    size = CMVideoFormatDescriptionGetDimensions(
+      (CMVideoFormatDescriptionRef)port.formatDescription);
+
+  *width  = size.width;
+  *height = size.height;
+}
+
 /* Empties the frame slot. Caller holds slot_mutex. */
 static void vc_FlushSlotLocked(imVideoCapture* vc)
 {
@@ -650,9 +739,10 @@ void imVideoCaptureDisconnect(imVideoCapture* vc)
     vc->delegate  = nil;
     vc->output    = nil;
     vc->input     = nil;
-    vc->session   = nil;
-    vc->av_device = nil;
-    vc->queue     = nil;
+    vc->session     = nil;
+    vc->av_device   = nil;
+    vc->queue       = nil;
+    vc->format_list = nil;
 
     pthread_mutex_lock(&vc->slot_mutex);
     vc_FlushSlotLocked(vc);
@@ -791,6 +881,17 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
     if (dimensions.width == 0 || dimensions.height == 0)
       return 0;
 
+
+    /* The presets this device accepts: exactly the sizes SetImageSize can
+       deliver. */
+    NSMutableArray<AVCaptureSessionPreset>* presets = [NSMutableArray array];
+    for (int i = 0; i < VC_PRESET_COUNT; i++)
+    {
+      if ([session canSetSessionPreset:vc_PresetTable[i].name])
+        [presets addObject:vc_PresetTable[i].name];
+    }
+    vc->format_list = presets;
+
     vc->av_device = av_device;
     vc->session   = session;
     vc->input     = input;
@@ -808,12 +909,21 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
 int imVideoCaptureLive(imVideoCapture* vc, int live)
 {
   assert(vc);
-  assert(vc->device != -1);
-  if (!vc || vc->device == -1)
+  if (!vc)
     return 0;
 
+  /* The query form is answered before the connection is asserted. It is
+     documented as "use -1 to return the current state", and the state of a
+     handle that is not connected is a perfectly good answer -- zero. The
+     reference asserts a connection for every form alike
+     (im_capture_dx.cpp:1233), which makes asking a disconnected handle
+     whether it is live abort a debug build rather than say "no". */
   if (live == -1)
-    return vc->live;        /* the documented query form */
+    return vc->live;
+
+  assert(vc->device != -1);
+  if (vc->device == -1)
+    return 0;
 
   if (live && vc->live)
     return 1;
@@ -841,6 +951,21 @@ int imVideoCaptureLive(imVideoCapture* vc, int live)
          loop. */
       if (!vc->session.isRunning)
         return 0;
+
+      /* Now that it is running the port is authoritative, so this is the
+         moment the advertised size becomes reliable -- a preset set while the
+         session was idle only takes effect here. Updated under the lock
+         because the delegate tests every arriving buffer against it. */
+      int negotiated_width = 0, negotiated_height = 0;
+      vc_ReadNegotiatedSize(vc, &negotiated_width, &negotiated_height);
+
+      if (negotiated_width > 0 && negotiated_height > 0)
+      {
+        pthread_mutex_lock(&vc->slot_mutex);
+        vc->width  = negotiated_width;
+        vc->height = negotiated_height;
+        pthread_mutex_unlock(&vc->slot_mutex);
+      }
 
       vc->live = 1;
       return 1;
@@ -879,9 +1004,69 @@ void imVideoCaptureGetImageSize(imVideoCapture* vc, int *width, int *height)
 
 int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
 {
-  (void)width; (void)height;
   assert(vc);
-  return 0;
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1)
+    return 0;
+
+  if (width == vc->width && height == vc->height)
+    return 1;
+
+  @autoreleasepool
+  {
+    AVCaptureSessionPreset wanted = nil;
+    for (AVCaptureSessionPreset candidate in vc->format_list)
+    {
+      int candidate_width, candidate_height;
+      vc_PresetSize(candidate, &candidate_width, &candidate_height);
+      if (candidate_width == width && candidate_height == height)
+      {
+        wanted = candidate;
+        break;
+      }
+    }
+
+    /* Exact match or refuse. Choosing the nearest size instead would leave
+       imVideoCaptureGetImageSize disagreeing with what the caller asked for
+       and, worse, would be indistinguishable from success at the call site.
+       The reference refuses too (im_capture_dx.cpp:1173). */
+    if (!wanted || ![vc->session canSetSessionPreset:wanted])
+      return 0;
+
+    int was_live = vc->live;
+    if (was_live && !imVideoCaptureLive(vc, 0))
+      return 0;
+
+    [vc->session beginConfiguration];
+    vc->session.sessionPreset = wanted;
+    [vc->session commitConfiguration];
+
+    /* The preset's name is the size, and canSetSessionPreset has already
+       agreed to it, so this is what the caller is told -- the port cannot be
+       consulted yet, since it does not track a preset change while the session
+       is stopped. Updated before anything restarts, because the delegate tests
+       every arriving buffer against it. */
+    pthread_mutex_lock(&vc->slot_mutex);
+    vc->width  = width;
+    vc->height = height;
+    vc_FlushSlotLocked(vc);          /* whatever is queued is the old size */
+    pthread_mutex_unlock(&vc->slot_mutex);
+
+    if (was_live)
+    {
+      /* Restarting refreshes the size from the port, which is authoritative
+         once running -- so if the session quietly gave us something else, the
+         width and height are corrected here and the disagreement is reported
+         rather than left to show up as every frame being dropped. */
+      if (!imVideoCaptureLive(vc, 1))
+        return 0;
+
+      if (vc->width != width || vc->height != height)
+        return 0;
+    }
+
+    return 1;
+  }
 }
 
 /* How long OneFrame waits for its frame, in milliseconds. */
@@ -1099,25 +1284,82 @@ int imVideoCaptureOneFrame(imVideoCapture* vc, unsigned char* data, int color_mo
   return ret;
 }
 
+/* FormatCount and GetFormat are implemented; SetFormat is not.
+
+   Reading the list is what makes SetImageSize usable: im_capture.h:186 names
+   GetFormat as the way to discover valid sizes, so with both stubbed a caller
+   could only guess and check. Setting a format is a different matter -- the
+   API's notion of a format is a size plus an encoding, this backend asks the
+   driver for BGRA regardless, and so the only part of a format selection that
+   would mean anything here is the size, which SetImageSize already does. */
+
 int imVideoCaptureFormatCount(imVideoCapture* vc)
 {
   assert(vc);
-  return 0;
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1)
+    return 0;
+
+  return (int)vc->format_list.count;
 }
 
 int imVideoCaptureGetFormat(imVideoCapture* vc, int format, int *width, int *height, char* desc)
 {
-  (void)format; (void)desc;
   assert(vc);
-  if (width)  *width = 0;
-  if (height) *height = 0;
-  return 0;
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1 ||
+      format < 0 || format >= (int)vc->format_list.count)
+  {
+    if (width)  *width = 0;
+    if (height) *height = 0;
+    return 0;
+  }
+
+  @autoreleasepool
+  {
+    int format_width, format_height;
+    vc_PresetSize(vc->format_list[format], &format_width, &format_height);
+
+    if (width)  *width  = format_width;
+    if (height) *height = format_height;
+
+    /* The reference writes the device's encoding here ("RGB24", or a four
+       character code). Every frame this backend hands back is converted from
+       BGRA whatever the camera's native encoding is, so reporting that
+       encoding would describe something the caller never sees. The size is the
+       whole of what a format means here, and desc says so. */
+    if (desc)
+      snprintf(desc, 10, "BGRA");
+
+    return 1;
+  }
 }
 
 int imVideoCaptureSetFormat(imVideoCapture* vc, int format)
 {
   assert(vc);
+  if (!vc)
+    return format == -1? -1: 0;
+
+  /* Same reasoning as Live: the query form is answerable without a
+     connection, and the answer is -1. */
   if (format == -1)
-    return -1;
+  {
+    if (vc->device == -1)
+      return -1;
+
+    /* Answered from the size in force rather than from a stored index, so it
+       stays true after SetImageSize. */
+    for (int i = 0; i < (int)vc->format_list.count; i++)
+    {
+      int format_width, format_height;
+      vc_PresetSize(vc->format_list[i], &format_width, &format_height);
+      if (format_width == vc->width && format_height == vc->height)
+        return i;
+    }
+    return -1;   /* a size no preset names, e.g. whatever High resolved to */
+  }
+
+  assert(vc->device != -1);
   return 0;
 }
