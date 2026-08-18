@@ -72,6 +72,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_JP2=OFF \
             -DIM_BUILD_HEIF=${{ matrix.heif }}
 
@@ -149,6 +150,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
+            -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_JP2=OFF \
             -DIM_BUILD_HEIF=ON
 

@@ -70,6 +70,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DIM_BUILD_CAPTURE=ON \
             -DIM_ENABLE_SANITIZERS=ON \
             -DIM_BUILD_JP2=OFF \
             -DIM_BUILD_LUA=OFF \

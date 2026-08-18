@@ -58,6 +58,7 @@ lookups; no other configuration is required.
 | `IM_BUILD_FFTW3`       | ON      | FFTW3-backed FFT add-on              |
 | `IM_BUILD_LUA`         | ON      | Lua 5.x bindings (imlua + add-ons)   |
 | `IM_BUILD_HEIF`        | OFF     | HEIC/AVIF support (needs libheif)    |
+| `IM_BUILD_CAPTURE`     | OFF     | Video capture (real only on macOS)   |
 
 Disable any of them with e.g. `-DIM_BUILD_JP2=OFF`.
 
@@ -98,6 +99,100 @@ which has no such constraint. Decoding HEIC needs only the LGPL libde265.
 Separately, HEVC is covered by patent pools (MPEG LA / Access Advance) that may
 require a licence for commercial distribution regardless of software licence.
 AVIF is royalty free.
+
+## Video capture, and the camera permission it needs
+
+`-DIM_BUILD_CAPTURE=ON` builds `libim_capture`. What you get depends on the
+platform, because the backend is chosen at build time -- there is no base class
+and no runtime selection, just one translation unit per platform implementing
+the 27 functions in `include/im_capture.h`.
+
+| Platform | Backend | Result |
+|----------|---------|--------|
+| macOS | `src/im_capture_avf.mm`, AVFoundation | real capture |
+| Windows | `src/im_capture_none.cpp` | reports no devices |
+| Windows + `-DIM_CAPTURE_DIRECTSHOW=ON` | `src/im_capture_dx.cpp` | needs SDKs from 2008, see below |
+| Linux and everything else | `src/im_capture_none.cpp` | reports no devices |
+
+The stub is not a placeholder to be embarrassed about: `imVideoCaptureCreate`
+is documented to return `NULL` when there is no camera and
+`imVideoCaptureDeviceCount` to return a count that may be zero, so every caller
+already handles that state. Having it means the exported symbol set is the same
+everywhere and you can link `libim_capture` unconditionally.
+
+The macOS backend links `AVFoundation`, `CoreMedia`, `CoreVideo` and
+`Foundation`, all system frameworks, and compiles one Objective-C++ file -- the
+only one in the tree, which is why `OBJCXX` is enabled lazily rather than in
+the top-level `project()`.
+
+The DirectShow backend needs `qedit.h`, which Microsoft removed from the
+Windows SDK after 6.1 (2008), plus DirectX SDK 9.15. It has never been compiled
+by this tree. It is behind its own option so that turning capture on does not
+break a Windows build that has no way to satisfy it.
+
+### The camera permission is not optional, and not catchable
+
+**A program that uses `libim_capture` on macOS must declare
+`NSCameraUsageDescription`, and must be attributed to itself.** If it does not,
+TCC does not return an error -- it kills the process with `SIGABRT`, from inside
+the first call that touches the camera, and nothing in the library can catch it
+or report it:
+
+```
+This app has crashed because it attempted to access privacy-sensitive data
+without a usage description.
+```
+
+Enumerating devices is safe and raises no prompt: `imVideoCaptureDeviceCount`
+and the `imVideoCaptureDevice*` functions can be called from anything. It is
+`imVideoCaptureConnect` that touches the camera.
+
+Embedding the key in your own binary is **not** enough on its own. TCC
+attributes the request to the *responsible* process, which for anything started
+from a shell is the terminal, and neither Terminal.app nor iTerm nor Emacs
+declares a camera usage string. Measured: a command line binary dies even with
+`NSCameraUsageDescription` in its own `__TEXT,__info_plist` section and covered
+by its code signature.
+
+What works is an app bundle launched through LaunchServices:
+
+```sh
+mkdir -p Grab.app/Contents/MacOS
+cp your_program Grab.app/Contents/MacOS/Grab
+cat > Grab.app/Contents/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleExecutable</key><string>Grab</string>
+  <key>CFBundleIdentifier</key><string>com.example.grab</string>
+  <key>NSCameraUsageDescription</key><string>Captures video frames.</string>
+</dict></plist>
+PLIST
+codesign --force --deep -s - Grab.app
+open -W --stdout /dev/stdout -a "$PWD/Grab.app"
+```
+
+The first run raises the permission dialog. Until it is answered, AVFoundation
+does not fail: it **delivers black frames**, which is why `imVideoCaptureConnect`
+checks the authorization status itself and returns 0 rather than handing back a
+plausible all-black image.
+
+Alternatively, grant camera access to your terminal in System Settings ->
+Privacy & Security -> Camera, and every command line program it launches
+inherits it.
+
+### Testing capture
+
+`ctest` covers what can be covered without hardware, which is more than it
+sounds: the device-list contract runs everywhere, and the pixel conversion --
+the part where a mistake produces a *plausible* image rather than an obvious
+failure -- is exercised on synthetic frames with known contents, so the
+bottom-up flip, the row stride, the channel order and the luma are all pinned
+with no camera at all.
+
+Nothing in the suite calls `imVideoCaptureConnect`, deliberately: `im_tests` is
+a bundle-less binary, so a case that connected would abort the whole suite
+rather than fail itself.
 
 ## Lua bindings
 

@@ -28,7 +28,8 @@ cmake --build build --target im_process
 
 Dependency install commands per platform are in `BUILDING.md`. Build options:
 `IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_JP2`, `IM_BUILD_FFTW3`,
-`IM_BUILD_LUA` (all default ON), `IM_BUILD_HEIF` (default OFF, see below), plus
+`IM_BUILD_LUA` (all default ON), `IM_BUILD_HEIF` and `IM_BUILD_CAPTURE` (both
+default OFF, see below), plus
 `IM_BUNDLE_LZF` (default OFF) to force the vendored liblzf.
 
 Everything lands in `build/lib/`.
@@ -135,6 +136,17 @@ Layered, with each layer a separate shared library so consumers link only what t
   would override IM's MIT terms for redistributors. `BUILDING.md` has the detail. It
   registers two drivers from one implementation and is the model to copy for a new format
   with a heavyweight dependency.
+- **`libim_capture`** (`src/im_capture_avf.mm` on macOS, `src/im_capture_none.cpp`
+  elsewhere) — live video capture, default **off**. Unlike the format drivers
+  there is no registry and no base class: the contract is the 27 functions in
+  `src/im_capture.def`, and each platform supplies one translation unit defining
+  all of them plus its own `struct _imVideoCapture`. Only macOS has a real
+  backend; the stub reports no devices so the symbol set is the same everywhere.
+  `src/im_capture_dx.cpp` is the upstream DirectShow backend, behind
+  `IM_CAPTURE_DIRECTSHOW` because it needs a 2008-era Windows SDK. **A program
+  that captures on macOS must carry `NSCameraUsageDescription` and run from an
+  app bundle, or TCC kills it uncatchably** — which is why no test may call
+  `imVideoCaptureConnect`. See BUILDING.md.
 - **`imlua*`** (`src/lua5/`) — Lua bindings, one module per native library, built with
   `PREFIX ""` so they load as `imlua.so` not `libimlua.so`.
 

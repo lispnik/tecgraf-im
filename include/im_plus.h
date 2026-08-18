@@ -814,24 +814,60 @@ namespace im
       GetImageSize(width, height);
       return Image(imImageCreate(width, height, as_gray ? IM_GRAY : IM_RGB, IM_BYTE)); 
     }
-    bool CaptureFrame(Image& dst_image, int timeout = -1) {
-      imImage* image = dst_image.GetHandle();
 
-      if (image->color_space != IM_GRAY && 
-          image->color_space != IM_RGB &&
-          image->data_type != IM_BYTE)
+    /* Is this image one the capture functions can safely fill?
+    
+       Two conditions, and the C API can check neither: it is handed a bare
+       unsigned char* and has no way to learn the colour space, the data type
+       or the extent of what it points at. The wrapper has an Image and can.
+
+       The colour space and data type must both be ones the frame data comes
+       in -- IM_RGB or IM_GRAY, and always IM_BYTE.
+
+       And the image must be exactly the size being captured. This is the one
+       that matters: imVideoCaptureFrame writes width*height*depth bytes from
+       the device, so a destination smaller than the current capture size is
+       overrun. A 100x100 image against a 1920x1080 camera is nearly six
+       megabytes past the end. */
+    /* The half of that which does not depend on a connection: whether frame
+       data can be stored in this image's layout at all. Separate so it can be
+       asked, and tested, before there is any device -- the size check below
+       refuses everything while disconnected, which would otherwise hide
+       whether this test works. */
+    static bool FrameLayoutSupported(const Image& dst_image) {
+      imImage* image = dst_image.GetHandle();
+      if (!image || !image->data[0])
         return false;
 
+      return (image->color_space == IM_GRAY || image->color_space == IM_RGB) &&
+             image->data_type == IM_BYTE;
+    }
+
+    bool CanReceiveFrame(const Image& dst_image) const {
+      if (!FrameLayoutSupported(dst_image))
+        return false;
+
+      int width = 0, height = 0;
+      GetImageSize(width, height);
+      if (width == 0 || height == 0)
+        return false;            /* not connected: nothing to capture into */
+
+      imImage* image = dst_image.GetHandle();
+      return image->width == width && image->height == height;
+    }
+
+    bool CaptureFrame(Image& dst_image, int timeout = -1) {
+      if (!CanReceiveFrame(dst_image))
+        return false;
+
+      imImage* image = dst_image.GetHandle();
       return imVideoCaptureFrame(im_vc, (unsigned char*)image->data[0], image->color_space, timeout) != 0; 
     }
     bool CaptureOneFrame(Image& dst_image) {
-      imImage* image = dst_image.GetHandle();
-
-      if (image->color_space != IM_GRAY &&
-          image->color_space != IM_RGB &&
-          image->data_type != IM_BYTE)
+      if (!CanReceiveFrame(dst_image))
         return false;
 
+      imImage* image = dst_image.GetHandle();
       return imVideoCaptureOneFrame(im_vc, (unsigned char*)image->data[0], image->color_space) != 0; 
     }
 

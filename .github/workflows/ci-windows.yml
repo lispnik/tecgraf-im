@@ -109,7 +109,7 @@ jobs:
           if (-not (Test-Path $pkgconf)) { throw "pkgconf not found at $pkgconf" }
 
           cmake -S . -B build -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_CAPTURE=ON `
             -DIM_BUILD_HEIF=ON `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DPKG_CONFIG_EXECUTABLE="$pkgconf" `

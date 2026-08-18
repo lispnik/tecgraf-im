@@ -27,6 +27,7 @@
 #include <im.h>
 #include <im_util.h>
 #include <im_capture.h>
+#include <im_plus.h>
 
 #include <algorithm>
 #include <string.h>
@@ -109,6 +110,88 @@ TEST_CASE("capture: a handle reports its state before it is connected")
   CHECK(imVideoCaptureConnect(vc, -1) == -1);
 
   imVideoCaptureDestroy(vc);
+}
+
+
+TEST_CASE("plus: the capture wrapper refuses an image it would overrun")
+{
+  /* im::VideoCapture is the reason these checks can exist at all: the C API
+     takes a bare unsigned char* and cannot learn the colour space, the data
+     type, or how much of it there is. The wrapper has an Image.
+
+     Every case here runs on a handle that is not connected, so nothing touches
+     the camera. That is enough, because a disconnected handle captures nothing
+     and every image must therefore be refused -- which is exactly the
+     behaviour a caller depends on for the guard to be worth anything. */
+  im::VideoCapture capture;
+
+  if (capture.Failed())
+  {
+    MESSAGE("no capture device on this machine; wrapper cases skipped");
+    return;
+  }
+
+  /* Not connected, so GetImageSize is 0x0 and nothing can be captured into. */
+  int width = -1, height = -1;
+  capture.GetImageSize(width, height);
+  CHECK(width == 0);
+  CHECK(height == 0);
+
+  SUBCASE("a well formed image is still refused while disconnected")
+  {
+    im::Image image(640, 480, IM_RGB, IM_BYTE);
+    REQUIRE(!image.Failed());
+    CHECK(capture.CaptureFrame(image, 0) == false);
+    CHECK(capture.CaptureOneFrame(image) == false);
+  }
+
+}
+
+TEST_CASE("plus: the capture wrapper knows which layouts frame data fits")
+{
+  /* Static, so it needs no device and runs everywhere -- which is the point.
+     Asking a disconnected handle to CaptureFrame refuses everything on the
+     size check alone, so a case that went through CaptureFrame could not tell
+     whether this test worked at all. It is exactly the test that was broken:
+     the three conditions were joined with && rather than ||, so an image
+     failing only one of them passed, and an IM_RGB image of IM_FLOAT went
+     straight through to a function that writes bytes. */
+
+  SUBCASE("the two layouts frame data comes in are accepted")
+  {
+    im::Image rgb(64, 48, IM_RGB, IM_BYTE);
+    im::Image gray(64, 48, IM_GRAY, IM_BYTE);
+    REQUIRE(!rgb.Failed());
+    REQUIRE(!gray.Failed());
+    CHECK(im::VideoCapture::FrameLayoutSupported(rgb) == true);
+    CHECK(im::VideoCapture::FrameLayoutSupported(gray) == true);
+  }
+
+  SUBCASE("a wrong data type is refused even with the right colour space")
+  {
+    im::Image floats(64, 48, IM_RGB, IM_FLOAT);
+    im::Image shorts(64, 48, IM_GRAY, IM_USHORT);
+    im::Image ints(64, 48, IM_RGB, IM_INT);
+    REQUIRE(!floats.Failed());
+    REQUIRE(!shorts.Failed());
+    REQUIRE(!ints.Failed());
+    CHECK(im::VideoCapture::FrameLayoutSupported(floats) == false);
+    CHECK(im::VideoCapture::FrameLayoutSupported(shorts) == false);
+    CHECK(im::VideoCapture::FrameLayoutSupported(ints) == false);
+  }
+
+  SUBCASE("a wrong colour space is refused even with the right data type")
+  {
+    im::Image map(64, 48, IM_MAP, IM_BYTE);
+    im::Image cmyk(64, 48, IM_CMYK, IM_BYTE);
+    im::Image binary(64, 48, IM_BINARY, IM_BYTE);
+    REQUIRE(!map.Failed());
+    REQUIRE(!cmyk.Failed());
+    REQUIRE(!binary.Failed());
+    CHECK(im::VideoCapture::FrameLayoutSupported(map) == false);
+    CHECK(im::VideoCapture::FrameLayoutSupported(cmyk) == false);
+    CHECK(im::VideoCapture::FrameLayoutSupported(binary) == false);
+  }
 }
 
 

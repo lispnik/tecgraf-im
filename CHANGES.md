@@ -127,6 +127,21 @@ compensate must stop.
 Defects where the old behaviour was not something anything could reasonably
 have depended on.
 
+- **`im::VideoCapture::CaptureFrame` accepted images it would overrun.** Its
+  three conditions were joined with `&&` rather than `||`, so an image failing
+  only one of them passed — an `IM_RGB`/`IM_FLOAT` image went straight to a
+  function that writes bytes. It also never compared the image's dimensions
+  against the capture size, so a 100×100 destination against a 1920×1080 camera
+  was a heap overflow of nearly six megabytes. The C entry point takes a bare
+  `unsigned char*` and can check neither; the wrapper has an `Image` and now
+  does both, through the new `CanReceiveFrame` and the static
+  `FrameLayoutSupported`. `CaptureOneFrame` had the same two defects.
+- **The DirectShow backend's `AnalogFormat` attribute could never have worked.**
+  Both the getter and the setter behind `imVideoCaptureGetAttribute`/`SetAttribute`
+  passed `(void**)video_decoder` to `QueryInterface` — the null pointer value
+  rather than `&video_decoder`. The same call is written correctly two hundred
+  lines further down, so it is a typo the C-style cast hid. Only reachable with
+  `IM_CAPTURE_DIRECTSHOW=ON`.
 - **`imProcessBinThinNhMaps` never returned.** Its pass loop stops when a pass
   deletes nothing, but the neighbourhood map at the left edge marked
   already-zero pixels as deletable and each was counted as a deletion, so the
@@ -292,6 +307,23 @@ against this library changes behaviour.
 
 ## Build
 
+- **`libim_capture` is built again, and works on macOS.** The target was
+  defined by tecmake makefiles and MSVC projects that were deleted in the CMake
+  conversion and never replaced, so `include/im_capture.h` has been installed
+  for a library nothing produced. `-DIM_BUILD_CAPTURE=ON` builds it. macOS gets
+  a real AVFoundation backend covering device enumeration, connect, live and
+  frame capture; every other platform gets a stub reporting no devices, which
+  keeps the exported symbol set identical everywhere. The DirectShow backend is
+  behind `-DIM_CAPTURE_DIRECTSHOW=ON` because it needs SDKs Microsoft withdrew
+  in 2008.
+
+  Two things a caller on macOS needs to know, both in `BUILDING.md`. The
+  program must declare `NSCameraUsageDescription` and be attributed to itself —
+  a bundle launched through LaunchServices — or TCC kills it with `SIGABRT` the
+  first time it touches the camera, uncatchably. And the gray conversion
+  computes luma, where the DirectShow backend copies the blue channel; nothing
+  can depend on the old values, since that backend builds against no current
+  SDK.
 - **libheif 1.17 or newer** is required for the optional HEIF/AVIF driver.
   The true minimum is 1.16, where `heif_brand2_avif` was added; 1.17 is what
   Ubuntu 24.04 ships and therefore what CI exercises. Ubuntu 22.04 carries

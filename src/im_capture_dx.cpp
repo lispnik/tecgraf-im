@@ -2048,7 +2048,7 @@ static long vc_AnalogFormat[19] =
 static int vc_SetAnalogFormat(IBaseFilter* capture_filter, double percent)
 {
   IAMAnalogVideoDecoder* video_decoder = NULL;
-  HRESULT hr = capture_filter->QueryInterface(IID_IAMAnalogVideoDecoder, (void**)video_decoder);
+  HRESULT hr = capture_filter->QueryInterface(IID_IAMAnalogVideoDecoder, (void**)&video_decoder);
   if (FAILED(hr))
     return 0;
 
@@ -2062,7 +2062,7 @@ static int vc_SetAnalogFormat(IBaseFilter* capture_filter, double percent)
 static int vc_GetAnalogFormat(IBaseFilter* capture_filter, double *percent)
 {
   IAMAnalogVideoDecoder* video_decoder = NULL;
-  HRESULT hr = capture_filter->QueryInterface(IID_IAMAnalogVideoDecoder, (void**)video_decoder);
+  HRESULT hr = capture_filter->QueryInterface(IID_IAMAnalogVideoDecoder, (void**)&video_decoder);
   if (FAILED(hr))
     return 0;
 
