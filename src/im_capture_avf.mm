@@ -231,9 +231,71 @@ struct _imVideoCapture
 };
 
 
-/* Filled in with the frame slot in phase 3; the class has to exist now so the
-   handle can hold one and Disconnect can clear its back pointer. */
 @implementation imCaptureDelegate
+
+/* Runs on the serial queue the handle owns. Its only job is to move the newest
+   frame into the slot: the conversion happens on the caller's thread in
+   imVideoCaptureFrame, after the lock is dropped, so a slow consumer cannot
+   stall capture. The reference does the opposite -- a full-frame CopyMemory
+   inside SampleCB (im_capture_dx.cpp:153) -- because DirectShow hands it a
+   buffer it may not keep, whereas a CVPixelBuffer can simply be retained. */
+- (void)captureOutput:(AVCaptureOutput*)output
+  didOutputSampleBuffer:(CMSampleBufferRef)sample
+         fromConnection:(AVCaptureConnection*)connection
+{
+  (void)output; (void)connection;
+
+  imVideoCapture* vc = self.vc;
+  if (!vc)
+    return;
+
+  CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
+  if (!buffer)
+    return;
+
+  pthread_mutex_lock(&vc->slot_mutex);
+
+  /* The dimension test is a bounds check, not a nicety. The caller sized its
+     buffer from imVideoCaptureGetImageSize, so a frame of any other size would
+     be converted straight past the end of it. AVFoundation can deliver one
+     after a format change, or when a device renegotiates. Dropping it loses a
+     frame; converting it corrupts the heap. */
+  int buffer_width  = (int)CVPixelBufferGetWidth(buffer);
+  int buffer_height = (int)CVPixelBufferGetHeight(buffer);
+
+  if (!vc->stopping && buffer_width == vc->width && buffer_height == vc->height)
+  {
+    if (vc->slot_buffer)
+      CVPixelBufferRelease(vc->slot_buffer);   /* newest wins */
+
+    vc->slot_buffer = buffer;
+    CVPixelBufferRetain(vc->slot_buffer);      /* CF, so retained by hand under ARC */
+    vc->slot_full = 1;
+
+    pthread_cond_signal(&vc->slot_cond);
+  }
+  else if (!vc->stopping)
+  {
+    /* Every frame is being dropped, so imVideoCaptureFrame will return 0 for
+       ever and there is nothing in the API to say why. Reported once, on
+       stderr, because a library that goes permanently silent is worse than one
+       that prints a line: the sizes are the whole diagnosis and the caller
+       cannot obtain them any other way. */
+    static int reported = 0;
+    if (!reported)
+    {
+      reported = 1;
+      fprintf(stderr,
+        "im_capture: dropping every frame -- the device is delivering %dx%d "
+        "but imVideoCaptureGetImageSize reports %dx%d, so converting would "
+        "write past the caller's buffer.\n",
+        buffer_width, buffer_height, vc->width, vc->height);
+    }
+  }
+
+  pthread_mutex_unlock(&vc->slot_mutex);
+}
+
 @end
 
 
@@ -699,10 +761,35 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
 
     [output setSampleBufferDelegate:delegate queue:queue];
 
-    /* The size the caller will be told about, and the size the delegate
-       checks each arriving buffer against. */
-    CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(
-      (CMVideoFormatDescriptionRef)av_device.activeFormat.formatDescription);
+    /* The size the caller will be told about, and the size the delegate checks
+       each arriving buffer against -- so it has to be what the camera will
+       actually deliver, not what it could deliver.
+
+       AVCaptureDevice.activeFormat is NOT that. The session applies its own
+       preset, which on macOS overrides the device's format, and the two
+       disagree: measured on a Logitech BRIO, activeFormat said 640x480 while
+       the session delivered 1920x1080, so every frame failed the delegate's
+       dimension check and imVideoCaptureFrame returned 0 for ever with nothing
+       to say why. (iOS solves this with AVCaptureSessionPresetInputPriority,
+       which tells the session to stand aside; that constant is unavailable on
+       macOS.)
+
+       The negotiated format is on the input's port, after commitConfiguration,
+       so that is what is read here -- with activeFormat kept only as a
+       fallback for the case where the port has not published one. */
+    CMVideoDimensions dimensions = { 0, 0 };
+
+    AVCaptureInputPort* port = input.ports.firstObject;
+    if (port && port.formatDescription)
+      dimensions = CMVideoFormatDescriptionGetDimensions(
+        (CMVideoFormatDescriptionRef)port.formatDescription);
+
+    if (dimensions.width == 0 || dimensions.height == 0)
+      dimensions = CMVideoFormatDescriptionGetDimensions(
+        (CMVideoFormatDescriptionRef)av_device.activeFormat.formatDescription);
+
+    if (dimensions.width == 0 || dimensions.height == 0)
+      return 0;
 
     vc->av_device = av_device;
     vc->session   = session;
@@ -797,18 +884,202 @@ int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height)
   return 0;
 }
 
+/* How long OneFrame waits for its frame, in milliseconds. */
+#define VC_ONEFRAME_TIMEOUT 5000
+
+/* One BGRA frame into the layout the caller asked for.
+
+   Two things the reference never had to do. AVFoundation delivers top-down
+   while this API promises bottom-up ("orientation is always bottom up",
+   im_capture.h:196), so source row y becomes destination row height-1-y. And
+   CVPixelBufferGetBytesPerRow is padded to a 16- or 64-byte multiple on most
+   cameras, so rows are reached through the stride rather than by assuming
+   width*4 -- the reference assumes width*3 throughout because DirectShow gave
+   it packed rows.
+
+   32BGRA is B,G,R,A in memory, which is the same channel order the DirectShow
+   backend consumes, so the assignments below line up with im_capture_dx.cpp
+   one for one apart from skipping the alpha byte. */
+static void vc_ConvertFrame(CVPixelBufferRef buffer, unsigned char* data,
+                            int color_mode, int width, int height)
+{
+  const unsigned char* base =
+    (const unsigned char*)CVPixelBufferGetBaseAddress(buffer);
+  const int stride = (int)CVPixelBufferGetBytesPerRow(buffer);
+  const int count  = width * height;
+  const int space  = imColorModeSpace(color_mode);
+  const int packed = imColorModeIsPacked(color_mode);
+
+  if (!base)
+    return;
+
+  for (int y = 0; y < height; y++)
+  {
+    const unsigned char* src = base + (size_t)y * stride;
+    const int line = height - 1 - y;      /* bottom-up */
+
+    if (space == IM_RGB)
+    {
+      if (packed)
+      {
+        unsigned char* dst = data + (size_t)line * width * 3;
+        for (int x = 0; x < width; x++)
+        {
+          *(dst+2) = *src++;   /* B */
+          *(dst+1) = *src++;   /* G */
+          *(dst+0) = *src++;   /* R */
+          src++;               /* A dropped: capture data has no alpha channel */
+          dst += 3;
+        }
+      }
+      else
+      {
+        /* Three consecutive planes, red first, as the reference lays them out
+           (im_capture_dx.cpp:190-193). This is the path that actually gets
+           used: both callers in the tree pass a bare colour space with no
+           IM_PACKED bit. */
+        unsigned char* red   = data               + (size_t)line * width;
+        unsigned char* green = data + count       + (size_t)line * width;
+        unsigned char* blue  = data + 2*(size_t)count + (size_t)line * width;
+        for (int x = 0; x < width; x++)
+        {
+          *blue++  = *src++;
+          *green++ = *src++;
+          *red++   = *src++;
+          src++;
+        }
+      }
+    }
+    else
+    {
+      /* Deviation from im_capture_dx.cpp:208-213, which copies the blue byte
+         of each pixel into the gray plane. That is not luma -- it is a blue
+         filter, and on a real scene it is dark and noisy. im.h:37 defines
+         IM_GRAY as "shades of gray, luma", imConvertColorSpace uses the luma
+         coefficients for the same conversion, and nothing can be relying on
+         the old values because the DirectShow backend does not build against
+         any current SDK and this library has never been built by this tree at
+         all. So: real luma, and do not "fix" it back.
+
+         Depth is 1, so packed and planar are the same layout here. */
+      unsigned char* map = data + (size_t)line * width;
+      for (int x = 0; x < width; x++)
+      {
+        map[x] = imColorRGB2Luma<unsigned char>(src[2], src[1], src[0]);
+        src += 4;
+      }
+    }
+  }
+}
+
 int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode, int timeout)
 {
-  (void)data; (void)color_mode; (void)timeout;
   assert(vc);
-  return 0;
+  assert(vc->device != -1);
+  assert(vc->live);
+  if (!vc || vc->device == -1 || !vc->live || !data)
+    return 0;
+
+  pthread_mutex_lock(&vc->slot_mutex);
+
+  if (timeout != 0)   /* 0 is a poll: never wait */
+  {
+    uint64_t deadline = 0;
+    if (timeout > 0)
+      deadline = clock_gettime_nsec_np(CLOCK_MONOTONIC)
+               + (uint64_t)timeout * 1000000ull;
+
+    while (!vc->slot_full && !vc->stopping)
+    {
+      if (timeout < 0)
+      {
+        /* Wait forever, but Disconnect can still release us: it sets stopping
+           and broadcasts, which is why that flag is in the predicate. */
+        if (pthread_cond_wait(&vc->slot_cond, &vc->slot_mutex) != 0)
+          break;
+      }
+      else
+      {
+        /* Recomputed each pass against a deadline fixed once, so a spurious
+           wakeup shortens the wait rather than restarting the caller's clock. */
+        uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC);
+        if (now >= deadline)
+          break;
+
+        uint64_t remaining = deadline - now;
+        struct timespec ts;
+        ts.tv_sec  = (time_t)(remaining / 1000000000ull);
+        ts.tv_nsec = (long)  (remaining % 1000000000ull);
+
+        if (pthread_cond_timedwait_relative_np(&vc->slot_cond,
+                                               &vc->slot_mutex, &ts) != 0)
+          break;   /* ETIMEDOUT */
+      }
+    }
+  }
+
+  CVPixelBufferRef buffer = NULL;
+  int width = 0, height = 0;
+
+  if (vc->slot_full)
+  {
+    buffer = vc->slot_buffer;   /* the retain moves to us */
+    vc->slot_buffer = NULL;
+    vc->slot_full = 0;
+    width  = vc->width;
+    height = vc->height;
+  }
+
+  pthread_mutex_unlock(&vc->slot_mutex);
+
+  /* "Returns zero if failed or timeout expired, the buffer is not changed."
+     That holds structurally here rather than by promise: data is not written
+     until after a frame has been taken out of the slot, and every path that
+     returns 0 does so before this point. */
+  if (!buffer)
+    return 0;
+
+  int ret = 0;
+  if (CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly)
+      == kCVReturnSuccess)
+  {
+    vc_ConvertFrame(buffer, data, color_mode, width, height);
+    CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+    ret = 1;
+  }
+
+  CVPixelBufferRelease(buffer);
+  return ret;
 }
 
 int imVideoCaptureOneFrame(imVideoCapture* vc, unsigned char* data, int color_mode)
 {
-  (void)data; (void)color_mode;
   assert(vc);
-  return 0;
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1 || !data)
+    return 0;
+
+  int was_live = vc->live;
+  if (!was_live && !imVideoCaptureLive(vc, 1))
+    return 0;
+
+  /* Anything already in the slot predates this call; the point of OneFrame is
+     to return a new frame. */
+  pthread_mutex_lock(&vc->slot_mutex);
+  vc_FlushSlotLocked(vc);
+  pthread_mutex_unlock(&vc->slot_mutex);
+
+  /* Deviation from im_capture_dx.cpp:917, which passes -1 and waits forever.
+     A camera that is present but never delivers -- a stalled virtual camera, a
+     Continuity link that dropped -- would hang the caller's process with no way
+     out. OneFrame is documented only as "returns zero if failed", so a bounded
+     wait is inside the contract. */
+  int ret = imVideoCaptureFrame(vc, data, color_mode, VC_ONEFRAME_TIMEOUT);
+
+  if (!was_live)
+    imVideoCaptureLive(vc, 0);
+
+  return ret;
 }
 
 int imVideoCaptureFormatCount(imVideoCapture* vc)
