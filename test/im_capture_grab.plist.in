@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+  <key>CFBundleIdentifier</key><string>br.puc-rio.tecgraf.im.capture-grab</string>
+  <key>CFBundleName</key><string>im_capture_grab</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>LSBackgroundOnly</key><true/>
+  <!-- Without this key TCC kills the process the first time it reaches the
+       camera, rather than returning an error the library could report. -->
+  <key>NSCameraUsageDescription</key>
+  <string>im_capture_grab captures a single frame from the camera and writes it to an image file.</string>
+</dict>
+</plist>

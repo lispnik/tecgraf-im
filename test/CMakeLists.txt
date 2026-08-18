@@ -28,6 +28,27 @@ add_executable(im_tests
 if(TARGET im_capture)
     target_sources(im_tests PRIVATE test_capture.cpp)
     target_link_libraries(im_tests PRIVATE im_capture)
+
+    # A hand-run tool, not a test: the conversion is pinned by synthetic
+    # frames in test_capture.cpp, but whether a real camera comes out the
+    # right way up and the right colour is something you confirm by looking.
+    #
+    # A bundle on macOS, and not for tidiness. A process that touches the
+    # camera without an NSCameraUsageDescription is killed by TCC -- SIGABRT,
+    # uncatchable -- and only a bundle can carry that key and have the request
+    # attributed to this program instead of to the terminal that launched it.
+    # It also has to be started through LaunchServices, so running the
+    # executable inside the bundle directly still fails; BUILDING.md and the
+    # source say so.
+    add_executable(im_capture_grab MACOSX_BUNDLE im_capture_grab.cpp)
+    target_include_directories(im_capture_grab PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_capture_grab PRIVATE im im_capture)
+    if(APPLE)
+        set_target_properties(im_capture_grab PROPERTIES
+            MACOSX_BUNDLE_INFO_PLIST
+                "${CMAKE_CURRENT_SOURCE_DIR}/im_capture_grab.plist.in"
+            MACOSX_BUNDLE_EXECUTABLE_NAME im_capture_grab)
+    endif()
 endif()
 
 # The HEIF driver is an optional add-on, so its tests compile only when it is
@@ -121,7 +142,7 @@ if(IM_BUILD_LUA)
     if(IM_LUA_INTERPRETER)
         # Modules beyond core imlua exist only when their add-on was built.
         set(_lua_modules "")
-        foreach(m imlua_process imlua_jp2 imlua_fftw3 imlua_heif)
+        foreach(m imlua_process imlua_jp2 imlua_fftw3 imlua_heif imlua_capture)
             if(TARGET ${m})
                 list(APPEND _lua_modules ${m})
             endif()
