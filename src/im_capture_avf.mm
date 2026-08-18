@@ -450,6 +450,84 @@ const char** imVideoCaptureGetAttributeList(imVideoCapture* vc, int *num_attrib)
 
 
 /*************************************************************************
+                            Authorization
+*************************************************************************/
+
+static void vc_FlushSlotLocked(imVideoCapture* vc);
+
+/* How long to wait for the user to answer the camera prompt, in seconds. */
+#define VC_AUTH_TIMEOUT 30
+
+/* AVFoundation does NOT fail when camera permission is missing. From
+   AVCaptureDevice.h: "Until access has been granted, any AVCaptureDevices for
+   the media type will vend silent audio samples or black video frames." So
+   without this check a caller would connect, capture, and get a plausible
+   all-black image with nothing anywhere reporting a problem. Silently
+   returning black is the worst of the available behaviours.
+
+   Connect is the only function the API lets fail for this reason, so this is
+   the only place it can be reported. Enumeration deliberately does not call
+   it: device names read back with no authorisation and no prompt, so gating
+   the list would turn "no permission" into the wrong diagnosis, "no camera".
+
+   What this function CANNOT do is protect a process that has no camera usage
+   description. TCC does not return a status in that case, it kills the
+   process -- SIGABRT, with "attempted to access privacy-sensitive data
+   without a usage description", from inside the request below. It is not
+   catchable, and no amount of checking here avoids it, because asking is
+   itself the access. Measured, not assumed: a plain command line binary run
+   from a terminal dies here even with NSCameraUsageDescription embedded in
+   its own __TEXT,__info_plist and covered by its signature, because TCC
+   attributes the request to the responsible process -- the terminal -- and
+   neither Terminal.app nor Emacs.app declares one.
+
+   So the requirement lands on whoever links this library: the program must
+   carry NSCameraUsageDescription and be attributed to itself, which in
+   practice means an app bundle launched through LaunchServices. See the
+   capture section of BUILDING.md. Nothing in im_tests may call Connect for
+   the same reason -- it would abort the suite rather than fail a case. */
+static int vc_CheckAuthorization(void)
+{
+  AVAuthorizationStatus status =
+    [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+
+  if (status == AVAuthorizationStatusAuthorized)
+    return 1;
+
+  if (status == AVAuthorizationStatusDenied ||
+      status == AVAuthorizationStatusRestricted)
+  {
+    /* No prompt is possible from here -- the user has to change it in System
+       Settings. Returning at once matters: asking anyway would come back NO
+       after a round trip and read as a hang. */
+    return 0;
+  }
+
+  /* NotDetermined: ask once. The completion handler runs on an arbitrary
+     dispatch queue rather than the main one, so blocking here cannot deadlock
+     even when the caller is the main thread and there is no run loop -- the
+     prompt is drawn by another process. The wait is bounded so an ignored
+     dialog does not wedge the caller for good; a grant that lands later is
+     picked up by the next Connect. */
+  __block int granted = 0;
+  dispatch_semaphore_t answered = dispatch_semaphore_create(0);
+
+  [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
+                           completionHandler:^(BOOL allowed) {
+                             granted = allowed? 1: 0;
+                             dispatch_semaphore_signal(answered);
+                           }];
+
+  if (dispatch_semaphore_wait(answered,
+        dispatch_time(DISPATCH_TIME_NOW,
+                      (int64_t)VC_AUTH_TIMEOUT * NSEC_PER_SEC)) != 0)
+    return 0;
+
+  return granted;
+}
+
+
+/*************************************************************************
                          Connection lifecycle
 *************************************************************************/
 
@@ -546,23 +624,154 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
   if (!vc)
     return 0;
 
-  /* The query form is answerable already. */
   if (device == -1)
-    return vc->device;
+    return vc->device;      /* the documented query form */
 
-  return 0;
+  /* ">=", where the reference writes "device > vc_DeviceCount"
+     (im_capture_dx.cpp:1008) and lets the index one past the end through to a
+     zeroed slot. */
+  pthread_mutex_lock(&vc_ListMutex);
+  int known = vc_CheckDeviceList(device);
+  AVCaptureDevice* av_device = known? vc_DeviceObjects[device]: nil;
+  pthread_mutex_unlock(&vc_ListMutex);
+
+  if (!known || !av_device)
+    return 0;
+
+  if (vc->device == device)
+    return 1;               /* already there; the reference does the same */
+
+  if (vc->device != -1)
+    imVideoCaptureDisconnect(vc);
+
+  if (!vc_CheckAuthorization())
+    return 0;
+
+  @autoreleasepool
+  {
+    NSError* error = nil;
+    AVCaptureDeviceInput* input =
+      [AVCaptureDeviceInput deviceInputWithDevice:av_device error:&error];
+    if (!input)
+      return 0;
+
+    AVCaptureSession* session = [[AVCaptureSession alloc] init];
+    AVCaptureVideoDataOutput* output = [[AVCaptureVideoDataOutput alloc] init];
+
+    /* Drop frames rather than queue them behind us. The slot holds one frame
+       and the newest wins, so a backlog would only ever be discarded later. */
+    output.alwaysDiscardsLateVideoFrames = YES;
+
+    [session beginConfiguration];
+
+    if (![session canAddInput:input] || ![session canAddOutput:output])
+    {
+      [session commitConfiguration];
+      return 0;
+    }
+    [session addInput:input];
+    [session addOutput:output];
+
+    /* 32BGRA is asked for rather than assumed. availableVideoCVPixelFormatTypes
+       is only populated once the output belongs to a session, which is why the
+       check sits inside the configuration block. Getting this wrong would show
+       up as garbled colour rather than an error, so it is worth the check:
+       every macOS camera offers BGRA, and its bytes are B,G,R,A in memory,
+       which is the same channel order the DirectShow backend consumes. */
+    NSNumber* wanted = @(kCVPixelFormatType_32BGRA);
+    if (![output.availableVideoCVPixelFormatTypes containsObject:wanted])
+    {
+      [session commitConfiguration];
+      return 0;
+    }
+    output.videoSettings = @{ (id)kCVPixelBufferPixelFormatTypeKey : wanted };
+
+    [session commitConfiguration];
+
+    imCaptureDelegate* delegate = [[imCaptureDelegate alloc] init];
+    delegate.vc = vc;
+
+    /* Serial by construction: dispatch_queue_create with a NULL attribute.
+       Both the newest-wins slot and the teardown barrier in Disconnect depend
+       on it being serial. */
+    dispatch_queue_t queue =
+      dispatch_queue_create("br.puc-rio.tecgraf.im.capture", NULL);
+
+    [output setSampleBufferDelegate:delegate queue:queue];
+
+    /* The size the caller will be told about, and the size the delegate
+       checks each arriving buffer against. */
+    CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(
+      (CMVideoFormatDescriptionRef)av_device.activeFormat.formatDescription);
+
+    vc->av_device = av_device;
+    vc->session   = session;
+    vc->input     = input;
+    vc->output    = output;
+    vc->delegate  = delegate;
+    vc->queue     = queue;
+    vc->width     = dimensions.width;
+    vc->height    = dimensions.height;
+    vc->device    = device;
+
+    return 1;
+  }
 }
 
 int imVideoCaptureLive(imVideoCapture* vc, int live)
 {
   assert(vc);
-  if (!vc)
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1)
     return 0;
 
   if (live == -1)
-    return vc->live;
+    return vc->live;        /* the documented query form */
 
-  return 0;
+  if (live && vc->live)
+    return 1;
+  if (!live && !vc->live)
+    return 1;
+
+  @autoreleasepool
+  {
+    if (live)
+    {
+      /* startRunning blocks until the session starts or fails -- typically a
+         few hundred milliseconds on a built-in camera, which is what the
+         reference's Sleep(VC_CAMERADELAY) (im_capture_dx.cpp:879) was
+         compensating for. A synchronous C API has nowhere else to put that
+         wait, so Live(1) is slow by construction.
+
+         Never called holding slot_mutex: the rule in this file is that no
+         AVFoundation call happens under that lock. */
+      [vc->session startRunning];
+
+      /* isRunning is a second net under vc_CheckAuthorization. If access were
+         revoked between the two, the session simply fails to start and posts
+         a notification we deliberately do not observe -- testing the flag
+         catches it without needing an observer, and so without needing a run
+         loop. */
+      if (!vc->session.isRunning)
+        return 0;
+
+      vc->live = 1;
+      return 1;
+    }
+    else
+    {
+      [vc->session stopRunning];
+
+      /* Anything already in the slot was captured before the stop and would be
+         handed out as though it were current. */
+      pthread_mutex_lock(&vc->slot_mutex);
+      vc_FlushSlotLocked(vc);
+      pthread_mutex_unlock(&vc->slot_mutex);
+
+      vc->live = 0;
+      return 1;
+    }
+  }
 }
 
 void imVideoCaptureGetImageSize(imVideoCapture* vc, int *width, int *height)
