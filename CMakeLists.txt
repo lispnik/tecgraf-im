@@ -76,6 +76,20 @@ option(IM_BUILD_LUA         "Build Lua 5.x bindings (imlua, imlua_process, ...)"
 # MIT terms for anyone redistributing. Opt in knowingly. See BUILDING.md.
 option(IM_BUILD_HEIF        "Build libim_heif (HEIC/AVIF add-on via libheif)"    OFF)
 
+# Also default OFF, for a different reason: only macOS has a real backend. On
+# every other platform this builds a stub that reports no capture devices, so
+# turning it on elsewhere gets you a library that links but never sees a
+# camera. See the libim_capture section below.
+option(IM_BUILD_CAPTURE     "Build libim_capture (video capture)"               OFF)
+
+# The DirectShow backend needs qedit.h, which Microsoft removed from the
+# Windows SDK after 6.1 (2008), plus DirectX SDK 9.15 -- the deleted tecmake
+# makefile hard-coded d:/lng/dxsdk for it. No CI runner has either, and this
+# tree has never compiled the file. Opt in only if you have those SDKs;
+# otherwise Windows gets the same stub as Linux.
+option(IM_CAPTURE_DIRECTSHOW
+    "Use the legacy DirectShow capture backend on Windows (needs Windows SDK 6.1)" OFF)
+
 # Build-time dependencies (all required for libim).
 find_package(PkgConfig REQUIRED)
 find_package(TIFF REQUIRED)
@@ -320,6 +334,69 @@ if(IM_BUILD_HEIF)
 endif()
 
 # ----------------------------------------------------------------------
+# libim_capture (live video capture)
+# ----------------------------------------------------------------------
+
+# Unlike the format drivers, capture has no registry and no base class. The
+# contract is the 27 functions in include/im_capture.h, and each platform
+# supplies exactly ONE translation unit defining all of them plus its own
+# struct _imVideoCapture. So the backend is chosen here, by source file, and
+# there is nothing to select at runtime.
+#
+# macOS gets a real AVFoundation implementation. Everything else gets a stub
+# that reports no devices, which keeps the exported symbol set identical on
+# every platform -- a consumer can link libim_capture unconditionally and find
+# out at runtime that there are no cameras, instead of failing to link here and
+# not there. On MSVC that also makes src/im_capture.def a live check: the
+# linker fails if a backend ever falls behind the export list.
+
+if(IM_BUILD_CAPTURE)
+    if(APPLE)
+        # Objective-C++ is deliberately not in the top-level project() language
+        # list: it exists only on this platform and only for this one file.
+        # Enable it lazily, before the target that compiles the .mm.
+        enable_language(OBJCXX)
+        set(IM_CAPTURE_SOURCES src/im_capture_avf.mm)
+    elseif(WIN32 AND IM_CAPTURE_DIRECTSHOW)
+        set(IM_CAPTURE_SOURCES src/im_capture_dx.cpp)
+    else()
+        set(IM_CAPTURE_SOURCES src/im_capture_none.cpp)
+    endif()
+
+    add_library(im_capture SHARED ${IM_CAPTURE_SOURCES})
+    im_add_def_file(im_capture "${CMAKE_SOURCE_DIR}/src/im_capture.def")
+    target_include_directories(im_capture PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_capture PRIVATE im)
+
+    if(APPLE)
+        # ARC for this file only. The handle holds strong references to the
+        # session, its input, its output and the delegate, and the teardown
+        # ordering is where the real hazards are; manual retain/release buys
+        # nothing. Note that CVPixelBufferRef is a Core Foundation type and is
+        # therefore still retained and released by hand -- see the comment on
+        # the frame slot in the source.
+        set_source_files_properties(src/im_capture_avf.mm PROPERTIES
+            COMPILE_OPTIONS "-fobjc-arc")
+
+        # CMAKE_FIND_FRAMEWORK LAST is set at the top of this file to stop
+        # find_package picking up an old libpng inside a third-party
+        # framework. It does not interfere here: LAST only orders framework
+        # hits after non-framework ones, and there is no non-framework
+        # AVFoundation to find first. REQUIRED so a missing SDK fails at
+        # configure time with a clear message rather than at link.
+        find_library(AVFOUNDATION_LIBRARY AVFoundation REQUIRED)
+        find_library(COREMEDIA_LIBRARY    CoreMedia    REQUIRED)
+        find_library(COREVIDEO_LIBRARY    CoreVideo    REQUIRED)
+        find_library(FOUNDATION_LIBRARY   Foundation   REQUIRED)
+        target_link_libraries(im_capture PRIVATE
+            ${AVFOUNDATION_LIBRARY} ${COREMEDIA_LIBRARY}
+            ${COREVIDEO_LIBRARY}    ${FOUNDATION_LIBRARY})
+    elseif(WIN32 AND IM_CAPTURE_DIRECTSHOW)
+        target_link_libraries(im_capture PRIVATE strmiids ole32 oleaut32 uuid)
+    endif()
+endif()
+
+# ----------------------------------------------------------------------
 # libim_fftw3 (FFTW3 backend)
 # ----------------------------------------------------------------------
 
@@ -420,7 +497,7 @@ endif()
 
 include(GNUInstallDirs)
 set(_im_targets im)
-foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif
+foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif im_capture
                    imlua imlua_process imlua_jp2 imlua_fftw3 imlua_heif)
     if(TARGET ${t})
         list(APPEND _im_targets ${t})
