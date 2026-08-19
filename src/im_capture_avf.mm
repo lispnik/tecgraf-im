@@ -557,6 +557,7 @@ struct _imVideoCapture
      the answer a caller actually wants. */
   int              failed;
   int              failure_reported;   /* per handle, not per process */
+  int              suspend_reported;
 
   /* Set once a delivered frame has told us the real size. Until then the
      delegate accepts whatever arrives instead of checking it, because there is
@@ -1254,6 +1255,35 @@ static void vc_ReportFailure(imVideoCapture* vc, int reason, NSError* error)
     error? error.localizedDescription.UTF8String: "");
 }
 
+/* Whether the device is suspended -- present and answering, but producing no
+   data. CoreMediaIO documents the case precisely (CMIOHardwareDevice.h, on
+   kCMIODevicePropertySuspendedByUser): "the user might close the FireWire
+   iSight's privacy iris or close the clamshell on a Mac Book or Mac Book Pro.
+   While suspended the device still responds to all requests just as if it was
+   active, but the stream(s) will not provide/accept any data."
+
+   Which is exactly what it looks like from here: Connect succeeds, the format
+   list is right, a size is negotiated, and then no frame ever arrives. Without
+   this the caller is told only that a frame did not turn up, and a closed
+   laptop lid is not the first thing anyone suspects.
+
+   Only DAL-backed devices publish it -- a built-in camera and a USB camera do,
+   an iPhone over Continuity does not -- so a missing property means "no idea",
+   not "not suspended". */
+static int vc_IsSuspended(imVideoCapture* vc)
+{
+  UInt32 suspended = 0;
+
+  if (vc->cmio_device == 0)
+    return 0;
+
+  if (!vc_CMIOGet(vc->cmio_device, kCMIODevicePropertySuspendedByUser,
+                  sizeof(suspended), &suspended))
+    return 0;
+
+  return suspended? 1: 0;
+}
+
 /* Whether the camera is still there, asked synchronously.
 
    Both questions AVFoundation answers without a run loop and without an
@@ -1358,6 +1388,7 @@ void imVideoCaptureDisconnect(imVideoCapture* vc)
     vc->stopping = 0;
     vc->failed = 0;
     vc->failure_reported = 0;
+    vc->suspend_reported = 0;
     pthread_mutex_unlock(&vc->slot_mutex);
 
     vc->live = 0;
@@ -1939,8 +1970,20 @@ int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode,
        still there. Not done for a poll -- timeout 0 returning empty is the
        normal case, and two property reads per poll would be a real cost in a
        loop. */
-    if (timeout != 0)
-      vc_CheckAlive(vc);
+    if (timeout != 0 && vc_CheckAlive(vc))
+    {
+      /* Still connected and still running, but nothing is coming out. A
+         suspended device behaves exactly like this and says so if asked. */
+      if (!vc->suspend_reported && vc_IsSuspended(vc))
+      {
+        vc->suspend_reported = 1;
+        fprintf(stderr,
+          "im_capture: device %d is suspended -- it is connected and answering, "
+          "but it will deliver no frames until it is resumed. On a built-in "
+          "camera this is a closed laptop lid; on some cameras it is a privacy "
+          "shutter.\n", vc->device);
+      }
+    }
     return 0;
   }
 
