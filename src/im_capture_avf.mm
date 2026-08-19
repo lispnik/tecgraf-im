@@ -736,28 +736,6 @@ static int vc_LearnDeliveredSize(imVideoCapture* vc)
   return learned;
 }
 
-/* The size the camera will actually deliver, read from the input's port.
-
-   Not AVCaptureDevice.activeFormat, and not the preset's name either: the port
-   is what the delivered frames follow. It is populated once the input has been
-   added and the configuration committed, but it does NOT track a preset change
-   made while the session is stopped -- measured: after setting the preset to
-   352x288 with the session idle, the preset read back as 352x288 while the
-   port still said 1920x1080. It catches up when the session starts, which is
-   why Live() refreshes from it and why that is the last word. */
-static void vc_ReadNegotiatedSize(imVideoCapture* vc, int* width, int* height)
-{
-  CMVideoDimensions size = { 0, 0 };
-
-  AVCaptureInputPort* port = vc->input.ports.firstObject;
-  if (port && port.formatDescription)
-    size = CMVideoFormatDescriptionGetDimensions(
-      (CMVideoFormatDescriptionRef)port.formatDescription);
-
-  *width  = size.width;
-  *height = size.height;
-}
-
 /* Empties the frame slot. Caller holds slot_mutex. */
 static void vc_FlushSlotLocked(imVideoCapture* vc)
 {
@@ -941,9 +919,17 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
        which tells the session to stand aside; that constant is unavailable on
        macOS.)
 
-       The negotiated format is on the input's port, after commitConfiguration,
-       so that is what is read here -- with activeFormat kept only as a
-       fallback for the case where the port has not published one. */
+       Neither is the input's port, which is what this block reads. That was
+       the second guess and it was wrong too: the port agreed with delivery at
+       first, then reported 1280x720 against the same 1920x1080 once another
+       process had changed the device's activeFormat, and the delegate dropped
+       every frame again.
+
+       So what is read here is a provisional figure and nothing more. It only
+       survives if vc_LearnDeliveredSize, immediately below, fails to see a
+       frame within two seconds -- and a frame that has actually arrived is the
+       one authority that cannot disagree with the delivery. activeFormat is
+       kept as a second fallback for a port that has published nothing. */
     CMVideoDimensions dimensions = { 0, 0 };
 
     AVCaptureInputPort* port = input.ports.firstObject;

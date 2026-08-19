@@ -375,8 +375,16 @@ if(IM_BUILD_CAPTURE)
         # nothing. Note that CVPixelBufferRef is a Core Foundation type and is
         # therefore still retained and released by hand -- see the comment on
         # the frame slot in the source.
+        # -Wall -Wextra for this one file, not the tree. The legacy sources use
+        # 'register' and much else besides and would drown in them; this file is
+        # new, and it has already shipped one function nobody called that
+        # -Wunused-function would have caught the day it was written.
+        #
+        # -Wno-deprecated-declarations is restated because source-level options
+        # come last on the command line, and AVCaptureDeviceTypeExternalUnknown
+        # is used deliberately for macOS before 14.
         set_source_files_properties(src/im_capture_avf.mm PROPERTIES
-            COMPILE_OPTIONS "-fobjc-arc")
+            COMPILE_OPTIONS "-fobjc-arc;-Wall;-Wextra;-Wno-deprecated-declarations")
 
         # CMAKE_FIND_FRAMEWORK LAST is set at the top of this file to stop
         # find_package picking up an old libpng inside a third-party
