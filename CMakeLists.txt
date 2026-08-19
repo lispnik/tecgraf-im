@@ -396,9 +396,17 @@ if(IM_BUILD_CAPTURE)
         find_library(COREMEDIA_LIBRARY    CoreMedia    REQUIRED)
         find_library(COREVIDEO_LIBRARY    CoreVideo    REQUIRED)
         find_library(FOUNDATION_LIBRARY   Foundation   REQUIRED)
+
+        # CoreMediaIO carries the camera controls -- brightness, contrast,
+        # exposure and the rest. AVFoundation has none of them on macOS; see
+        # the attribute section of src/im_capture_avf.mm. Only the plug-in side
+        # of this framework is deprecated, not the client API used here.
+        find_library(COREMEDIAIO_LIBRARY  CoreMediaIO  REQUIRED)
+
         target_link_libraries(im_capture PRIVATE
             ${AVFOUNDATION_LIBRARY} ${COREMEDIA_LIBRARY}
-            ${COREVIDEO_LIBRARY}    ${FOUNDATION_LIBRARY})
+            ${COREVIDEO_LIBRARY}    ${FOUNDATION_LIBRARY}
+            ${COREMEDIAIO_LIBRARY})
     elseif(WIN32 AND IM_CAPTURE_DIRECTSHOW)
         target_link_libraries(im_capture PRIVATE strmiids ole32 oleaut32 uuid)
     endif()

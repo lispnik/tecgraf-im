@@ -41,6 +41,8 @@
 #include <AVFoundation/AVFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
+#include <CoreMediaIO/CMIOHardware.h>
+#include <CoreMediaIO/CMIOHardware.h>
 
 #include <pthread.h>
 #include <assert.h>
@@ -261,6 +263,247 @@ static void vc_PresetSize(AVCaptureSessionPreset preset, int* width, int* height
 
 
 /*************************************************************************
+                              Attributes
+*************************************************************************/
+
+/* IM's attribute model is DirectShow's: ask the driver for a range, then get
+   and set a value inside it, which is exactly what a percentage needs.
+   AVFoundation on macOS cannot answer that. It gives mode enums --
+   exposureMode, focusMode, whiteBalanceMode -- and every property carrying an
+   actual value is iOS only: exposureDuration, ISO, lensPosition,
+   deviceWhiteBalanceGains, videoZoomFactor and the AVCaptureDeviceFormat
+   min/max accessors are all API_UNAVAILABLE(macos). Brightness, contrast, hue,
+   saturation, sharpness, gamma, gain, iris, pan and tilt are absent from
+   AVFoundation on every platform.
+
+   CoreMediaIO is the structural match, and close to an exact one:
+
+     kCMIOFeatureControlPropertyNativeRange       IAMVideoProcAmp::GetRange
+     kCMIOFeatureControlPropertyNativeValue       Get / Set
+     kCMIOFeatureControlPropertyAutomaticManual   VideoProcAmp_Flags_Auto
+
+   Measured, because none of it is guessable from the headers. On a Logitech
+   BRIO the device's owned objects include nine controls with real ranges --
+   brightness, contrast, saturation and sharpness at 0..255, gain at 0..255,
+   exposure at 3..2047, zoom at 100..500, focus at 0..255, backlight
+   compensation at 0..1 -- every one of them settable. On the built-in FaceTime
+   HD camera, and on an iPhone over Continuity, the same enumeration returns
+   ZERO owned objects.
+
+   So this is worth having and not worth promising: a USB camera gets most of
+   the list and a Mac's own camera gets none of it. That is the API working as
+   documented rather than failing -- imVideoCaptureGetAttribute returning zero
+   is the documented way to ask whether an attribute is supported.
+
+   Also measured: none of this needs camera authorisation. Every range and
+   value above was read from a plain command line binary with no bundle and no
+   TCC prompt, which is the opposite of imVideoCaptureConnect. */
+
+struct vcAttrib
+{
+  const char* name;
+  CMIOClassID control_class;      /* 0 when macOS has no counterpart */
+  CMIOClassID alternate_class;    /* second candidate, or 0 */
+};
+
+#define VC_ATTRIB_COUNT 20
+
+/* In the order include/im_capture.h documents them, so GetAttributeList reports
+   them in that order too -- which is what the reference does. */
+static const vcAttrib vc_AttribTable[VC_ATTRIB_COUNT] =
+{
+  { "VideoBrightness",            kCMIOBrightnessControlClassID,            0 },
+  { "VideoContrast",              kCMIOContrastControlClassID,              0 },
+  { "VideoHue",                   kCMIOHueControlClassID,                   0 },
+  { "VideoSaturation",            kCMIOSaturationControlClassID,            0 },
+  { "VideoSharpness",             kCMIOSharpnessControlClassID,             0 },
+  { "VideoGamma",                 kCMIOGammaControlClassID,                 0 },
+
+  /* DirectShow's colour-kill switch. Nothing in CoreMediaIO. */
+  { "VideoColorEnable",           0,                                        0 },
+
+  /* The header calls this "a color temperature in degrees Kelvin", which is
+     literally kCMIOTemperatureControlClassID, while
+     kCMIOWhiteBalanceControlClassID is the generic control. Generic first,
+     temperature as the fallback. */
+  { "VideoWhiteBalance",          kCMIOWhiteBalanceControlClassID,
+                                  kCMIOTemperatureControlClassID },
+
+  { "VideoBacklightCompensation", kCMIOBacklightCompensationControlClassID, 0 },
+  { "VideoGain",                  kCMIOGainControlClassID,                  0 },
+
+  /* kCMIOPanControlClassID rather than kCMIOPanTiltAbsoluteControlClassID: the
+     absolute and relative pan/tilt/zoom controls carry NativeData, a packed
+     structure, instead of a NativeValue, so they cannot be one percentage.
+     Observed on a BRIO, whose 'ptab' reports a NativeRange of [nan..7.6e-310]
+     -- garbage the range check below rejects anyway. */
+  { "CameraPanAngle",             kCMIOPanControlClassID,                   0 },
+  { "CameraTiltAngle",            kCMIOTiltControlClassID,                  0 },
+  { "CameraRollAngle",            kCMIORollAbsoluteControlClassID,          0 },
+  { "CameraLensZoom",             kCMIOZoomControlClassID,                  0 },
+
+  /* DirectShow's Exposure is a shutter time; CoreMediaIO splits the two. */
+  { "CameraExposure",             kCMIOExposureControlClassID,
+                                  kCMIOShutterControlClassID },
+
+  { "CameraIris",                 kCMIOIrisControlClassID,                  0 },
+  { "CameraFocus",                kCMIOFocusControlClassID,                 0 },
+
+  /* IAMVideoControl mode bits. No CoreMediaIO counterpart. */
+  { "FlipHorizontal",             0,                                        0 },
+  { "FlipVertical",               0,                                        0 },
+
+  /* AnalogVideoStandard ordinals for an analogue capture card. Nothing on
+     macOS has any idea what NTSC_M is. */
+  { "AnalogFormat",               0,                                        0 },
+};
+
+/* CoreMediaIO also defines BlackLevel, WhiteLevel, WhiteBalanceU/V,
+   PowerLineFrequency, NoiseReduction and OpticalFilter, and a BRIO does expose
+   PowerLineFrequency among others. They are not surfaced because the name set
+   is fixed by include/im_capture.h and shared with the DirectShow backend --
+   adding one is a public API change, not a macOS detail. */
+
+/* Fixed-size read of one CoreMediaIO property. Everything this file wants is
+   fixed size and global scope. */
+static int vc_CMIOGet(CMIOObjectID object, CMIOObjectPropertySelector selector,
+                      UInt32 size, void* out)
+{
+  CMIOObjectPropertyAddress address =
+    { selector, kCMIOObjectPropertyScopeGlobal, kCMIOObjectPropertyElementMain };
+  UInt32 used = 0;
+
+  return CMIOObjectGetPropertyData(object, &address, 0, NULL, size, &used, out)
+           == kCMIOHardwareNoError && used == size;
+}
+
+static int vc_CMIOSet(CMIOObjectID object, CMIOObjectPropertySelector selector,
+                      UInt32 size, const void* value)
+{
+  CMIOObjectPropertyAddress address =
+    { selector, kCMIOObjectPropertyScopeGlobal, kCMIOObjectPropertyElementMain };
+
+  return CMIOObjectSetPropertyData(object, &address, 0, NULL, size, (void*)value)
+           == kCMIOHardwareNoError;
+}
+
+static int vc_CMIOSettable(CMIOObjectID object, CMIOObjectPropertySelector selector)
+{
+  CMIOObjectPropertyAddress address =
+    { selector, kCMIOObjectPropertyScopeGlobal, kCMIOObjectPropertyElementMain };
+  Boolean settable = false;
+
+  return CMIOObjectIsPropertySettable(object, &address, &settable)
+           == kCMIOHardwareNoError && settable;
+}
+
+/* The percentage conversions, ported from im_capture_dx.cpp:1817 and :1822.
+
+   The formula is the reference's; the types are not. DirectShow's GetRange
+   yields long Min/Max/Step, CoreMediaIO's NativeRange is a pair of Float64 with
+   no step at all, so the step-rounding arm of vc_Percent2Value has no input
+   here and is gone.
+
+   Two guards the reference does not have. A degenerate range would divide by
+   zero and hand the caller a NaN through a double* -- a BRIO reports 0..0 for
+   its temperature and power-line-frequency controls and [nan..7.6e-310] for
+   pan-tilt-absolute -- so it is refused as unsupported instead. And the
+   percentage is clamped rather than extrapolated: SetAttribute(vc, "VideoGain",
+   150) drives the reference straight out of range and leaves the driver to
+   cope.
+
+   External linkage, and deliberately not in src/im_capture.def: this is the
+   part of the attribute code whose correctness cannot be shown from a camera,
+   so test_capture.cpp declares it and drives it with known ranges. The same
+   arrangement as imVideoCaptureConvertBGRA, and for the same reason. */
+int imVideoCaptureValue2Percent(double minimum, double maximum,
+                                double value, double* percent)
+{
+  if (!percent)
+    return 0;
+
+  *percent = 0;
+
+  /* Written as a negated comparison so that a NaN bound fails it: every
+     comparison against NaN is false. */
+  if (!(maximum > minimum))
+    return 0;
+
+  if (value < minimum) value = minimum;
+  if (value > maximum) value = maximum;
+
+  *percent = ((value - minimum) * 100.0) / (maximum - minimum);
+  return 1;
+}
+
+int imVideoCapturePercent2Value(double minimum, double maximum,
+                                double percent, double* value)
+{
+  if (!value)
+    return 0;
+
+  *value = 0;
+
+  if (!(maximum > minimum))
+    return 0;
+
+  if (percent < 0.0)   percent = 0.0;
+  if (percent > 100.0) percent = 100.0;
+
+  *value = (percent / 100.0) * (maximum - minimum) + minimum;
+  return 1;
+}
+
+/* The CMIODeviceID whose UID matches this AVCaptureDevice's uniqueID.
+
+   Enumerating and comparing rather than using kCMIOHardwarePropertyDeviceForUID,
+   because "the two identifier spaces agree" is an assumption worth being able
+   to watch fail. Measured: they agree exactly on a USB camera, on the built-in
+   camera and on an iPhone over Continuity. */
+static CMIODeviceID vc_ResolveCMIODevice(NSString* unique_id)
+{
+  if (!unique_id)
+    return 0;
+
+  CMIOObjectPropertyAddress address = { kCMIOHardwarePropertyDevices,
+                                        kCMIOObjectPropertyScopeGlobal,
+                                        kCMIOObjectPropertyElementMain };
+  UInt32 bytes = 0;
+  if (CMIOObjectGetPropertyDataSize(kCMIOObjectSystemObject, &address, 0, NULL, &bytes)
+        != kCMIOHardwareNoError || bytes == 0)
+    return 0;
+
+  CMIODeviceID* devices = (CMIODeviceID*)malloc(bytes);
+  if (!devices)
+    return 0;
+
+  UInt32 used = 0;
+  CMIODeviceID found = 0;
+  if (CMIOObjectGetPropertyData(kCMIOObjectSystemObject, &address, 0, NULL,
+                                bytes, &used, devices) == kCMIOHardwareNoError)
+  {
+    int count = (int)(used / sizeof(CMIODeviceID));
+    for (int i = 0; i < count && found == 0; i++)
+    {
+      CFStringRef device_uid = NULL;
+      if (vc_CMIOGet(devices[i], kCMIODevicePropertyDeviceUID,
+                     sizeof(device_uid), &device_uid) && device_uid)
+      {
+        /* Core Foundation, so released by hand even under ARC -- the same
+           discipline the frame slot uses for its CVPixelBufferRef. */
+        if ([(__bridge NSString*)device_uid isEqualToString:unique_id])
+          found = devices[i];
+        CFRelease(device_uid);
+      }
+    }
+  }
+
+  free(devices);
+  return found;
+}
+
+
+/*************************************************************************
                           The capture handle
 *************************************************************************/
 
@@ -313,8 +556,123 @@ struct _imVideoCapture
      increasing size. The same job the reference's format_map[] does for
      DirectShow's enumeration. */
   NSArray<AVCaptureSessionPreset>* format_list;
+
+  /* CoreMediaIO's view of the same camera, resolved from av_device.uniqueID at
+     Connect. The attributes live there rather than in AVFoundation, which on
+     macOS exposes exposure and focus as mode enums and has no brightness,
+     contrast, saturation, sharpness or gain at all -- see vc_AttribTable. */
+  CMIODeviceID cmio_device;                     /* 0 when unresolved */
+  CMIOObjectID cmio_control[VC_ATTRIB_COUNT];   /* index-matched to vc_AttribTable */
+  const char*  attrib_list[VC_ATTRIB_COUNT];    /* the subset actually present */
+  int          attrib_count;
 };
 
+
+/* Records which of the table's controls this device actually has.
+
+   Every owned object is examined once and matched against the table, rather
+   than searching for each attribute in turn, which would walk the same list
+   twenty times. The qualifier that kCMIOObjectPropertyOwnedObjects accepts is
+   not used: it is documented to match subclasses, but on a BRIO it reported
+   twelve matches against a list that holds more feature controls than that, so
+   the properties are tested for directly instead.
+
+   A control is recorded only if it has a usable NativeRange. One that exists
+   and reports 0..0, as a BRIO's temperature control does, would otherwise be
+   listed by GetAttributeList and then refused by GetAttribute -- which the
+   header permits, but which is less use than not listing it. */
+static void vc_RefreshControls(imVideoCapture* vc)
+{
+  memset(vc->cmio_control, 0, sizeof(vc->cmio_control));
+  vc->attrib_count = 0;
+
+  if (vc->cmio_device == 0)
+    return;
+
+  CMIOObjectPropertyAddress owned = { kCMIOObjectPropertyOwnedObjects,
+                                      kCMIOObjectPropertyScopeGlobal,
+                                      kCMIOObjectPropertyElementMain };
+  UInt32 bytes = 0;
+  if (CMIOObjectGetPropertyDataSize(vc->cmio_device, &owned, 0, NULL, &bytes)
+        != kCMIOHardwareNoError || bytes == 0)
+    return;
+
+  CMIOObjectID* objects = (CMIOObjectID*)malloc(bytes);
+  if (!objects)
+    return;
+
+  UInt32 used = 0;
+  if (CMIOObjectGetPropertyData(vc->cmio_device, &owned, 0, NULL,
+                                bytes, &used, objects) == kCMIOHardwareNoError)
+  {
+    int count = (int)(used / sizeof(CMIOObjectID));
+    for (int i = 0; i < count; i++)
+    {
+      CMIOClassID control_class = 0;
+      if (!vc_CMIOGet(objects[i], kCMIOObjectPropertyClass,
+                      sizeof(control_class), &control_class))
+        continue;
+
+      AudioValueRange range = { 0, 0 };
+      if (!vc_CMIOGet(objects[i], kCMIOFeatureControlPropertyNativeRange,
+                      sizeof(range), &range))
+        continue;
+      if (!(range.mMaximum > range.mMinimum))
+        continue;                     /* 0..0, or nan, is not a range */
+
+      for (int a = 0; a < VC_ATTRIB_COUNT; a++)
+      {
+        if (vc->cmio_control[a])
+          continue;                   /* first match wins, so a primary class
+                                         beats an alternate */
+        if ((vc_AttribTable[a].control_class &&
+             vc_AttribTable[a].control_class == control_class) ||
+            (vc_AttribTable[a].alternate_class &&
+             vc_AttribTable[a].alternate_class == control_class))
+        {
+          vc->cmio_control[a] = objects[i];
+          break;
+        }
+      }
+    }
+  }
+
+  free(objects);
+
+  for (int a = 0; a < VC_ATTRIB_COUNT; a++)
+    if (vc->cmio_control[a])
+      vc->attrib_list[vc->attrib_count++] = vc_AttribTable[a].name;
+}
+
+/* The table row for a name, or -1.
+
+   A linear scan of twenty strcmp, where the reference builds a 101-bucket hash
+   (im_capture_dx.cpp:2105) with no collision handling and a size chosen
+   empirically so that exactly those twenty names happen not to collide. Note
+   also that it returns 0 for "not found" while its callers test for -1, so an
+   unknown name there silently becomes VideoProcAmp_Brightness. -1 here is
+   unambiguous. */
+static int vc_AttribIndex(const char* attrib)
+{
+  if (!attrib)
+    return -1;
+
+  for (int i = 0; i < VC_ATTRIB_COUNT; i++)
+    if (strcmp(attrib, vc_AttribTable[i].name) == 0)
+      return i;
+
+  return -1;
+}
+
+/* The control backing an attribute, or 0 when this device does not have it. */
+static CMIOObjectID vc_ControlFor(imVideoCapture* vc, const char* attrib)
+{
+  int index = vc_AttribIndex(attrib);
+  if (index < 0)
+    return 0;
+
+  return vc->cmio_control[index];
+}
 
 @implementation imCaptureDelegate
 
@@ -549,12 +907,6 @@ void imVideoCaptureDestroy(imVideoCapture* vc)
                   has no equivalent; there is no system-provided camera settings
                   window to show.
      SetInOut     Routes an analog capture card's crossbar. No counterpart.
-     Attributes   The names in im_capture.h:252-296 are a Windows list, down to
-                  AnalogFormat enumerating DirectShow's AnalogVideoStandard
-                  ordinals. AVFoundation exposes exposure, focus and white
-                  balance as modes on AVCaptureDevice rather than as a
-                  percentage of a range, so a partial mapping would be less
-                  useful than an honest "unsupported".
 *************************************************************************/
 
 int imVideoCaptureDialogCount(imVideoCapture* vc)
@@ -583,28 +935,140 @@ int imVideoCaptureSetInOut(imVideoCapture* vc, int input, int output, int cross)
 
 int imVideoCaptureResetAttribute(imVideoCapture* vc, const char* attrib, int fauto)
 {
-  (void)vc; (void)attrib; (void)fauto;
-  return 0;
+  assert(vc);
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1)
+    return 0;
+
+  CMIOObjectID control = vc_ControlFor(vc, attrib);
+  if (!control)
+    return 0;
+
+  /* The reference writes the driver's advertised Default value and, when fauto
+     is set and the driver says it can, switches to automatic as well
+     (im_capture_dx.cpp:1866). CoreMediaIO has no counterpart to Default. The
+     feature control properties are OnOff, AutomaticManual, AbsoluteNative,
+     Tune, NativeValue, AbsoluteValue, NativeRange, AbsoluteRange, the two
+     converters, AbsoluteUnitName, NativeData and NativeDataRange -- and that is
+     the whole list. There is no value to reset to.
+
+     So fauto is the only half that can be honoured, and it is honoured exactly.
+     With fauto clear there is nothing truthful to do and this returns 0.
+
+     Rejected: writing the midpoint of NativeRange, or the value read when the
+     device was connected, and calling either "the default". Both are
+     fabrications that would return 1, and a caller cannot tell a fabricated
+     success from a real one -- which is the failure this file goes out of its
+     way to avoid elsewhere. */
+  if (!fauto)
+    return 0;
+
+  if (!vc_CMIOSettable(control, kCMIOFeatureControlPropertyAutomaticManual))
+    return 0;
+
+  UInt32 automatic = 1;
+  return vc_CMIOSet(control, kCMIOFeatureControlPropertyAutomaticManual,
+                    sizeof(automatic), &automatic)? 1: 0;
 }
 
 int imVideoCaptureGetAttribute(imVideoCapture* vc, const char* attrib, double *percent)
 {
-  (void)vc; (void)attrib;
-  if (percent) *percent = 0;
-  return 0;
+  assert(vc);
+  assert(vc->device != -1);
+
+  /* Written before anything can fail, so a caller that ignores the return
+     value does not read a stale double. */
+  if (percent)
+    *percent = 0;
+
+  if (!vc || vc->device == -1 || !percent)
+    return 0;
+
+  CMIOObjectID control = vc_ControlFor(vc, attrib);
+  if (!control)
+    return 0;      /* unknown name, or a device without this control */
+
+  AudioValueRange range = { 0, 0 };
+  Float32 value = 0;
+  if (!vc_CMIOGet(control, kCMIOFeatureControlPropertyNativeRange, sizeof(range), &range) ||
+      !vc_CMIOGet(control, kCMIOFeatureControlPropertyNativeValue, sizeof(value), &value))
+    return 0;
+
+  return imVideoCaptureValue2Percent(range.mMinimum, range.mMaximum,
+                                     (double)value, percent);
 }
 
 int imVideoCaptureSetAttribute(imVideoCapture* vc, const char* attrib, double percent)
 {
-  (void)vc; (void)attrib; (void)percent;
-  return 0;
+  assert(vc);
+  assert(vc->device != -1);
+  if (!vc || vc->device == -1)
+    return 0;
+
+  CMIOObjectID control = vc_ControlFor(vc, attrib);
+  if (!control)
+    return 0;
+
+  /* Refused before the write rather than after it. Attempting a write to a
+     read-only control would produce an OSStatus we would report the same way,
+     but only after a round trip through the DAL. */
+  if (!vc_CMIOSettable(control, kCMIOFeatureControlPropertyNativeValue))
+    return 0;
+
+  AudioValueRange range = { 0, 0 };
+  if (!vc_CMIOGet(control, kCMIOFeatureControlPropertyNativeRange, sizeof(range), &range))
+    return 0;
+
+  double value = 0;
+  if (!imVideoCapturePercent2Value(range.mMinimum, range.mMaximum, percent, &value))
+    return 0;
+
+  /* The reference passes VideoProcAmp_Flags_Manual on every Set
+     (im_capture_dx.cpp:1849), and that is not decoration: a control left under
+     automatic control ignores a manual write, or overwrites it on the next
+     frame. CoreMediaIO expresses the same thing as a separate property, so it
+     is set separately -- and only when the control has it and will take it,
+     since a control with no automatic mode is already manual. */
+  if (vc_CMIOSettable(control, kCMIOFeatureControlPropertyAutomaticManual))
+  {
+    UInt32 automatic = 0;
+    vc_CMIOSet(control, kCMIOFeatureControlPropertyAutomaticManual,
+               sizeof(automatic), &automatic);
+  }
+
+  Float32 native = (Float32)value;
+  return vc_CMIOSet(control, kCMIOFeatureControlPropertyNativeValue,
+                    sizeof(native), &native)? 1: 0;
 }
 
 const char** imVideoCaptureGetAttributeList(imVideoCapture* vc, int *num_attrib)
 {
-  (void)vc;
-  if (num_attrib) *num_attrib = 0;
-  return NULL;
+  assert(vc);
+  assert(vc->device != -1);
+
+  if (num_attrib)
+    *num_attrib = 0;
+
+  if (!vc || vc->device == -1 || vc->attrib_count == 0)
+    return NULL;
+
+  if (num_attrib)
+    *num_attrib = vc->attrib_count;
+
+  /* The array is the handle's and is valid until Disconnect; the strings in it
+     are the literals in vc_AttribTable and outlive everything.
+
+     Deviation from im_capture_dx.cpp:2196, whose list is a function-static
+     array shared by every handle in the process -- two handles alternating
+     GetAttributeList calls there overwrite each other's list with no way for
+     either to notice.
+
+     This list is also narrower than the reference's, and deliberately: that one
+     returns a whole interface's block of names as soon as the device supports
+     the interface at all, leaving the caller to discover which of them fail.
+     This one returns the controls the device actually has, so every name in it
+     answers imVideoCaptureGetAttribute. */
+  return vc->attrib_list;
 }
 
 
@@ -808,6 +1272,10 @@ void imVideoCaptureDisconnect(imVideoCapture* vc)
     vc->width = 0;
     vc->height = 0;
     vc->size_known = 0;
+
+    vc->cmio_device = 0;
+    vc->attrib_count = 0;
+    memset(vc->cmio_control, 0, sizeof(vc->cmio_control));
   }
 }
 
@@ -965,6 +1433,16 @@ int imVideoCaptureConnect(imVideoCapture* vc, int device)
     vc->height     = dimensions.height;
     vc->size_known = 0;
     vc->device     = device;
+
+    /* Resolved eagerly rather than on first use. Authorisation has already
+       been checked by this point, Connect already runs the camera for up to
+       two seconds below, and a handful of property reads is noise against
+       that -- while a lazy resolve would put the first CoreMediaIO call at an
+       arbitrary later moment and leave a "not tried yet" state to reason
+       about. Failing to resolve is not a Connect failure: capture works
+       perfectly well with no attributes. */
+    vc->cmio_device = vc_ResolveCMIODevice(av_device.uniqueID);
+    vc_RefreshControls(vc);
 
     /* Replace the guess with the truth, by running the camera until a frame
        arrives and taking its dimensions. If nothing arrives the port's figure

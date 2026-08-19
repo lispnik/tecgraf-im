@@ -334,4 +334,161 @@ TEST_CASE("capture: a frame is converted bottom-up, de-strided, in RGB order")
   }
 }
 
+
+/* Not in im_capture.h: internal to the macOS backend, declared here in the only
+   thing that calls them from outside, so a signature drift is a link error. */
+int imVideoCaptureValue2Percent(double minimum, double maximum,
+                                double value, double* percent);
+int imVideoCapturePercent2Value(double minimum, double maximum,
+                                double percent, double* value);
+
+TEST_CASE("capture: attribute percentages are a position within the device's range")
+{
+  /* The conversions IM's attribute API is built on: the device reports a range
+     and a value, and the caller only ever sees a percentage. Exercised
+     directly, because on a machine whose camera exposes no controls -- which is
+     every built-in Mac camera measured so far, and every CI runner -- there is
+     otherwise nothing here to test at all. */
+
+  double percent = -1, value = -1;
+
+  SUBCASE("the ends and the middle")
+  {
+    REQUIRE(imVideoCaptureValue2Percent(0, 255, 0, &percent) != 0);
+    CHECK(percent == doctest::Approx(0.0));
+    REQUIRE(imVideoCaptureValue2Percent(0, 255, 255, &percent) != 0);
+    CHECK(percent == doctest::Approx(100.0));
+    REQUIRE(imVideoCaptureValue2Percent(0, 255, 127.5, &percent) != 0);
+    CHECK(percent == doctest::Approx(50.0));
+
+    /* A range that does not start at zero, which is the common case: a BRIO
+       reports exposure over 3..2047 and zoom over 100..500. */
+    REQUIRE(imVideoCaptureValue2Percent(100, 500, 100, &percent) != 0);
+    CHECK(percent == doctest::Approx(0.0));
+    REQUIRE(imVideoCaptureValue2Percent(100, 500, 300, &percent) != 0);
+    CHECK(percent == doctest::Approx(50.0));
+  }
+
+  SUBCASE("and back again")
+  {
+    const double ranges[][2] = { {0,255}, {3,2047}, {100,500}, {0,1}, {-180,180} };
+    for (int r = 0; r < 5; r++)
+    {
+      for (double want = 0; want <= 100; want += 12.5)
+      {
+        CAPTURE(r); CAPTURE(want);
+        REQUIRE(imVideoCapturePercent2Value(ranges[r][0], ranges[r][1], want, &value) != 0);
+        CHECK(value >= ranges[r][0]);
+        CHECK(value <= ranges[r][1]);
+        REQUIRE(imVideoCaptureValue2Percent(ranges[r][0], ranges[r][1], value, &percent) != 0);
+        CHECK(percent == doctest::Approx(want));
+      }
+    }
+  }
+
+  SUBCASE("a negative range works, because one of them is")
+  {
+    /* CameraRollAngle is documented in degrees and CoreMediaIO's roll control
+       runs -180..180, so the arithmetic must not assume a positive floor. */
+    REQUIRE(imVideoCaptureValue2Percent(-180, 180, -180, &percent) != 0);
+    CHECK(percent == doctest::Approx(0.0));
+    REQUIRE(imVideoCaptureValue2Percent(-180, 180, 0, &percent) != 0);
+    CHECK(percent == doctest::Approx(50.0));
+  }
+
+  SUBCASE("a degenerate range is refused rather than dividing by zero")
+  {
+    /* Not hypothetical: a Logitech BRIO reports 0..0 for its temperature and
+       power-line-frequency controls. Without this the caller gets a NaN
+       through a double*, and a NaN percentage is worse than a refusal because
+       it compares false against everything and propagates. */
+    percent = -1;
+    CHECK(imVideoCaptureValue2Percent(0, 0, 0, &percent) == 0);
+    CHECK(percent == 0);
+    CHECK(imVideoCaptureValue2Percent(5, 5, 5, &percent) == 0);
+    CHECK(imVideoCaptureValue2Percent(10, 3, 5, &percent) == 0);   /* inverted */
+
+    value = -1;
+    CHECK(imVideoCapturePercent2Value(0, 0, 50, &value) == 0);
+    CHECK(value == 0);
+  }
+
+  SUBCASE("a NaN bound is refused too")
+  {
+    /* A BRIO's pan-tilt-absolute control reports a NativeRange of
+       [nan .. 7.6e-310] -- it carries NativeData rather than a NativeValue and
+       the range field is meaningless. Every comparison against NaN is false,
+       so the guard is written as a negation to catch it. */
+    const double nan_value = 0.0 / 0.0;
+    CHECK(imVideoCaptureValue2Percent(nan_value, 100, 50, &percent) == 0);
+    CHECK(imVideoCaptureValue2Percent(0, nan_value, 50, &percent) == 0);
+    CHECK(imVideoCapturePercent2Value(nan_value, 100, 50, &value) == 0);
+  }
+
+  SUBCASE("out of range is clamped, not extrapolated")
+  {
+    /* The reference passes a percentage straight through the arithmetic and
+       lets the driver deal with whatever comes out (im_capture_dx.cpp:1822). */
+    REQUIRE(imVideoCapturePercent2Value(0, 255, 150, &value) != 0);
+    CHECK(value == doctest::Approx(255.0));
+    REQUIRE(imVideoCapturePercent2Value(0, 255, -50, &value) != 0);
+    CHECK(value == doctest::Approx(0.0));
+
+    REQUIRE(imVideoCaptureValue2Percent(0, 255, 1000, &percent) != 0);
+    CHECK(percent == doctest::Approx(100.0));
+    REQUIRE(imVideoCaptureValue2Percent(0, 255, -1000, &percent) != 0);
+    CHECK(percent == doctest::Approx(0.0));
+  }
+
+  SUBCASE("a NULL destination is refused rather than dereferenced")
+  {
+    CHECK(imVideoCaptureValue2Percent(0, 255, 128, NULL) == 0);
+    CHECK(imVideoCapturePercent2Value(0, 255, 50, NULL) == 0);
+  }
+}
+
+#ifdef NDEBUG
+/* Behind NDEBUG, per the convention in test_datatype.cpp: every one of these
+   calls deliberately breaks a documented precondition -- an attribute belongs
+   to a device, so all four functions assert a connection, exactly as the
+   reference does. The assert is what a debug build wants; the guard beside it
+   is what a shipped build needs, and this proves the guard.
+
+   Not the same case as imVideoCaptureLive(vc,-1), which answers without a
+   connection: "not live" is a true statement about a handle that is not
+   connected, whereas "the brightness of no device" is not a question. */
+TEST_CASE("capture: attributes are refused on a handle that is not connected")
+{
+  imVideoCapture* vc = imVideoCaptureCreate();
+  if (!vc)
+  {
+    MESSAGE("no capture device on this machine; attribute cases skipped");
+    return;
+  }
+
+  /* Nothing here connects -- see the header comment. A disconnected handle has
+     resolved no CoreMediaIO device, so every attribute call must refuse. */
+  int count = -1;
+  CHECK(imVideoCaptureGetAttributeList(vc, &count) == NULL);
+  CHECK(count == 0);
+
+  double percent = -1;
+  CHECK(imVideoCaptureGetAttribute(vc, "VideoBrightness", &percent) == 0);
+  CHECK(percent == 0);            /* written before anything can fail */
+
+  CHECK(imVideoCaptureSetAttribute(vc, "VideoBrightness", 50.0) == 0);
+  CHECK(imVideoCaptureResetAttribute(vc, "VideoBrightness", 1) == 0);
+
+  SUBCASE("and a name that is not one of the twenty is refused too")
+  {
+    CHECK(imVideoCaptureGetAttribute(vc, "NoSuchAttribute", &percent) == 0);
+    CHECK(imVideoCaptureGetAttribute(vc, "", &percent) == 0);
+    CHECK(imVideoCaptureGetAttribute(vc, NULL, &percent) == 0);
+    CHECK(imVideoCaptureSetAttribute(vc, NULL, 50.0) == 0);
+  }
+
+  imVideoCaptureDestroy(vc);
+}
+#endif /* NDEBUG */
+
 #endif /* __APPLE__ */
