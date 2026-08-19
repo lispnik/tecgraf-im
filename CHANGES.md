@@ -324,6 +324,34 @@ against this library changes behaviour.
   computes luma, where the DirectShow backend copies the blue channel; nothing
   can depend on the old values, since that backend builds against no current
   SDK.
+- **Camera controls work on macOS, over CoreMediaIO.**
+  `imVideoCaptureGetAttribute`, `SetAttribute`, `ResetAttribute` and
+  `GetAttributeList` are implemented rather than stubbed. AVFoundation could not
+  have carried them — it exposes mode enums and no numeric ranges, and has no
+  brightness, contrast, gain or the rest on any platform — whereas
+  CoreMediaIO's `NativeRange`/`NativeValue`/`AutomaticManual` are DirectShow's
+  `GetRange`/`Get`/`Set`/`Flags_Auto` under other names.
+
+  **How much you get is a property of the camera.** A Logitech BRIO reports nine
+  of the twenty documented attributes; the built-in FaceTime HD camera and an
+  iPhone over Continuity report none at all. An empty `GetAttributeList` is
+  therefore the normal answer on a laptop, and a zero from `GetAttribute` is the
+  documented way to ask. Unlike the rest of capture, none of this needs camera
+  permission.
+
+  `ResetAttribute` honours only its `fauto` argument: CoreMediaIO has no
+  default-value property, so with `fauto` clear it returns 0 rather than
+  fabricating a default. `GetAttributeList` is also narrower than the DirectShow
+  backend's, which returns a whole interface's block of names and leaves the
+  caller to discover which ones fail — this one returns only controls the device
+  actually has.
+- **A camera that goes away is now reported.** Unplug one mid-capture and
+  `imVideoCaptureFrame` returns 0 and `imVideoCaptureLive(vc, -1)` returns 0,
+  where previously `Frame` returned 0 for ever while `Live` went on claiming the
+  capture was running, and a `Frame` with an infinite timeout waited for a frame
+  that could never arrive. Recovery is `imVideoCaptureReloadDevices` followed by
+  a fresh `imVideoCaptureConnect` — the device index may change, because
+  AVFoundation publishes a new device object rather than reviving the old one.
 - **libheif 1.17 or newer** is required for the optional HEIF/AVIF driver.
   The true minimum is 1.16, where `heif_brand2_avif` was added; 1.17 is what
   Ubuntu 24.04 ships and therefore what CI exercises. Ubuntu 22.04 carries

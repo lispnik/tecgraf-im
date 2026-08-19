@@ -198,6 +198,80 @@ for anything else, rather than reporting a success the caller would only
 discover was false when the frames came back the wrong size. Expect it to
 refuse — on some cameras, everything except the size it is already at.
 
+### Camera controls, and why your camera probably has none
+
+`imVideoCaptureGetAttribute` and its three companions are implemented on macOS,
+over **CoreMediaIO** rather than AVFoundation. That is not an arbitrary choice:
+IM's model is DirectShow's — ask the device for a range, then get and set a
+value inside it, which is what a percentage needs — and AVFoundation on macOS
+never exposes a range. It gives mode enums, every property carrying an actual
+value is iOS-only, and brightness, contrast, hue, saturation, sharpness, gamma,
+gain, iris, pan and tilt are absent from it on every platform. CoreMediaIO's
+`NativeRange`, `NativeValue` and `AutomaticManual` are `GetRange`, `Get`/`Set`
+and `Flags_Auto` under other names.
+
+**How much you get depends entirely on the camera, and a Mac's own camera gives
+nothing.** Measured here:
+
+| Camera | Controls |
+|---|---|
+| Logitech BRIO (USB/UVC) | brightness, contrast, saturation, sharpness, gain, backlight compensation, exposure, zoom, focus — 9 of the 20 documented names |
+| Built-in FaceTime HD camera | **none** — the device reports zero owned objects |
+| iPhone over Continuity | **none** |
+
+So an empty `imVideoCaptureGetAttributeList` is the normal answer on a laptop,
+not a fault. The API is built for this: a zero from `imVideoCaptureGetAttribute`
+is the documented way to ask whether an attribute is supported, and the list
+only ever contains controls the device really has.
+
+```sh
+open -W --stdout /dev/stdout -a build/lib/im_capture_grab.app --args 0 attrs
+```
+
+prints every documented name and what the connected device says about it.
+
+Two behaviours worth knowing:
+
+- **The attributes need no camera permission.** Ranges and values read back from
+  a plain command line binary with no bundle and no TCC prompt — the opposite of
+  `imVideoCaptureConnect`. Only opening a stream needs authorisation.
+- **`imVideoCaptureResetAttribute` only honours its `fauto` argument.** The
+  DirectShow backend also writes the driver's advertised default value;
+  CoreMediaIO has no default-value property at all, so with `fauto` clear there
+  is nothing truthful to write and the call returns 0 rather than inventing a
+  value and reporting success.
+
+Controls are a property of the device, not of your connection: another
+application changing the brightness changes it for you too. That is how UVC
+works, not a defect here.
+
+### When the camera goes away
+
+Unplug a camera mid-capture and `imVideoCaptureFrame` starts returning 0 and
+`imVideoCaptureLive(vc, -1)` returns 0, with one line on stderr saying so. The
+detection is a pair of synchronous property reads rather than a notification,
+deliberately: this library is reached from plain C, from Lua, and from runtimes
+that `dlopen` it, none of which is guaranteed to have a run loop for a
+notification to arrive on.
+
+Recovery needs a fresh connection, and a fresh *device list*:
+
+```c
+imVideoCaptureDisconnect(vc);
+imVideoCaptureReloadDevices();      /* the device index may have changed */
+imVideoCaptureConnect(vc, device);
+```
+
+`imVideoCaptureReloadDevices` is not optional. AVFoundation never revives an
+`AVCaptureDevice` once it reports itself disconnected — when the same camera is
+plugged back in it publishes a new one.
+
+```sh
+open -W --stdout /dev/stdout -a build/lib/im_capture_grab.app --args 0 watch
+```
+
+captures in a loop so you can pull the cable and watch it happen.
+
 ### Testing capture
 
 `ctest` covers what can be covered without hardware, which is more than it

@@ -147,6 +147,13 @@ Layered, with each layer a separate shared library so consumers link only what t
   that captures on macOS must carry `NSCameraUsageDescription` and run from an
   app bundle, or TCC kills it uncatchably** — which is why no test may call
   `imVideoCaptureConnect`. See BUILDING.md.
+
+  The camera attributes are the one part that is *not* AVFoundation: they go
+  through **CoreMediaIO**, because AVFoundation exposes mode enums and no
+  numeric ranges, and IM's attribute API is a percentage of a range. They also
+  need no camera permission. How many a device has is hardware-dependent — a
+  USB camera reports nine of twenty, a built-in Mac camera reports none — so an
+  empty `imVideoCaptureGetAttributeList` is normal, not broken.
 - **`imlua*`** (`src/lua5/`) — Lua bindings, one module per native library, built with
   `PREFIX ""` so they load as `imlua.so` not `libimlua.so`.
 
