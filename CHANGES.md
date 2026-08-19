@@ -345,6 +345,12 @@ against this library changes behaviour.
   backend's, which returns a whole interface's block of names and leaves the
   caller to discover which ones fail — this one returns only controls the device
   actually has.
+- **A suspended camera is reported instead of silently delivering nothing.** A
+  laptop with its lid closed suspends the built-in camera: it still enumerates,
+  connects and negotiates a format, and then produces no frames at all, which
+  CoreMediaIO documents and which looks exactly like a broken driver. The
+  library now says so on stderr when a wait produces nothing and the device is
+  otherwise healthy.
 - **A camera that goes away is now reported.** Unplug one mid-capture and
   `imVideoCaptureFrame` returns 0 and `imVideoCaptureLive(vc, -1)` returns 0,
   where previously `Frame` returned 0 for ever while `Live` went on claiming the

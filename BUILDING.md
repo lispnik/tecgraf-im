@@ -224,6 +224,22 @@ not a fault. The API is built for this: a zero from `imVideoCaptureGetAttribute`
 is the documented way to ask whether an attribute is supported, and the list
 only ever contains controls the device really has.
 
+**Nothing you can call will change that**, and it is worth knowing why before
+going looking. Each camera is serviced by a CoreMediaIO system extension —
+`com.apple.cmio.uvcassistantextension` for USB cameras, and separate Apple
+extensions for the built-in camera and for Continuity — and whether controls
+exist is that extension's choice, not the client's. Apple's UVC extension
+republishes a camera's UVC processing-unit controls as CoreMediaIO feature
+controls; Apple's extensions for its own cameras publish none, because the
+exposure and white balance decisions live inside the image pipeline rather than
+being exposed as adjustable values. This is not the legacy-versus-modern
+plug-in split it looks like: the USB camera is served by a modern extension
+too.
+
+The practical test for "will this camera have controls" is the transport type —
+a `usb` camera very likely does, a `bltn` one does not — but the only honest
+answer is to ask, which is what `imVideoCaptureGetAttributeList` is for.
+
 ```sh
 open -W --stdout /dev/stdout -a build/lib/im_capture_grab.app --args 0 attrs
 ```
@@ -244,6 +260,33 @@ Two behaviours worth knowing:
 Controls are a property of the device, not of your connection: another
 application changing the brightness changes it for you too. That is how UVC
 works, not a defect here.
+
+### A closed lid, and other suspended cameras
+
+A built-in camera on a laptop with the lid closed is *suspended*: it enumerates,
+it connects, it reports its formats, it negotiates a size — and it delivers no
+frames at all. CoreMediaIO documents exactly this, on
+`kCMIODevicePropertySuspendedByUser`:
+
+> the user might close the FireWire iSight's privacy iris or close the clamshell
+> on a Mac Book or Mac Book Pro. While suspended the device still responds to all
+> requests just as if it was active, but the stream(s) will not provide/accept
+> any data.
+
+Measured here, with the lid shut: `imVideoCaptureConnect` succeeds, the format
+list is complete, a size is negotiated, and `imVideoCaptureFrame` times out
+every time. Since every visible sign says the camera is working, the library
+says so itself rather than leaving you to guess:
+
+```
+im_capture: device 1 is suspended -- it is connected and answering, but it will
+deliver no frames until it is resumed. On a built-in camera this is a closed
+laptop lid; on some cameras it is a privacy shutter.
+```
+
+Only some devices publish the property — a built-in camera and a USB camera do,
+an iPhone over Continuity does not — so its absence means "no information", not
+"not suspended".
 
 ### When the camera goes away
 
