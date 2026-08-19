@@ -45,6 +45,7 @@
 #include <CoreMediaIO/CMIOHardware.h>
 
 #include <pthread.h>
+#include <errno.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -546,6 +547,16 @@ struct _imVideoCapture
   CVPixelBufferRef slot_buffer;
   int              slot_full;
   int              stopping;   /* set by Disconnect to release a blocked Frame */
+
+  /* Set when the camera has gone away or the session has failed. Kept separate
+     from "live" on purpose: imVideoCaptureFrame asserts live, and a preview
+     loop is Live(1) followed by Frame in a loop, so zeroing live from
+     underneath it would abort a debug build for a caller that did nothing
+     wrong. live still means "the caller asked for it and startRunning
+     succeeded"; imVideoCaptureLive(vc,-1) reports live && !failed, which is
+     the answer a caller actually wants. */
+  int              failed;
+  int              failure_reported;   /* per handle, not per process */
 
   /* Set once a delivered frame has told us the real size. Until then the
      delegate accepts whatever arrives instead of checking it, because there is
@@ -1200,6 +1211,86 @@ static int vc_LearnDeliveredSize(imVideoCapture* vc)
   return learned;
 }
 
+#define VC_FAIL_DISCONNECTED 1
+#define VC_FAIL_RUNTIME      2
+
+/* Records that the camera is gone, wakes anyone waiting for a frame, and says
+   so once.
+
+   The API has no error channel -- every function returns 0 or a count -- so
+   without this a vanished camera is indistinguishable from a slow one:
+   imVideoCaptureFrame returns 0 for ever and imVideoCaptureLive(vc,-1) goes on
+   claiming the capture is running. The stderr line is the same argument as the
+   delegate's size-mismatch warning: a condition that makes every later call
+   fail, with nothing in the API able to explain why, is worth one line.
+
+   Reported once per handle rather than once per process, unlike that older
+   warning, whose "static int reported" swallows the second handle's message. */
+static void vc_ReportFailure(imVideoCapture* vc, int reason, NSError* error)
+{
+  int report;
+
+  pthread_mutex_lock(&vc->slot_mutex);
+  report = !vc->failure_reported;
+  vc->failed = 1;
+  vc->failure_reported = 1;
+  pthread_cond_broadcast(&vc->slot_cond);      /* release a blocked Frame(-1) */
+  pthread_mutex_unlock(&vc->slot_mutex);
+
+  /* Printed after the lock is dropped: fprintf can block on a pipe, and the
+     delegate must never wait behind it. */
+  if (!report)
+    return;
+
+  fprintf(stderr,
+    "im_capture: device %d %s -- imVideoCaptureFrame will return 0 from now on "
+    "and imVideoCaptureLive(vc,-1) reports 0. To recover: disconnect this "
+    "handle, call imVideoCaptureReloadDevices (the device index may change), "
+    "then connect again. AVFoundation never revives an AVCaptureDevice once it "
+    "reports disconnected, it publishes a new one.%s%s\n",
+    vc->device,
+    reason == VC_FAIL_DISCONNECTED? "has been disconnected": "stopped with an error",
+    error? " Reported: ": "",
+    error? error.localizedDescription.UTF8String: "");
+}
+
+/* Whether the camera is still there, asked synchronously.
+
+   Both questions AVFoundation answers without a run loop and without an
+   observer, which matters because this library is reached from plain C, from
+   Lua, and from runtimes that dlopen it -- none of which is guaranteed to have
+   one. AVCaptureDevice.h on -connected: "When the value of this property
+   becomes NO for a given instance, it will not become YES again", so this is a
+   latch rather than something that flickers.
+
+   Never called holding slot_mutex, per the rule that no AVFoundation call
+   happens under that lock. */
+static int vc_CheckAlive(imVideoCapture* vc)
+{
+  if (vc->device == -1)
+    return 1;
+  if (vc->failed)
+    return 0;
+
+  int reason = 0;
+
+  @autoreleasepool
+  {
+    if (vc->av_device && !vc->av_device.connected)
+      reason = VC_FAIL_DISCONNECTED;
+    else if (vc->live && vc->session && !vc->session.isRunning)
+      reason = VC_FAIL_RUNTIME;
+  }
+
+  if (reason)
+  {
+    vc_ReportFailure(vc, reason, nil);
+    return 0;
+  }
+
+  return 1;
+}
+
 /* Empties the frame slot. Caller holds slot_mutex. */
 static void vc_FlushSlotLocked(imVideoCapture* vc)
 {
@@ -1265,6 +1356,8 @@ void imVideoCaptureDisconnect(imVideoCapture* vc)
     pthread_mutex_lock(&vc->slot_mutex);
     vc_FlushSlotLocked(vc);
     vc->stopping = 0;
+    vc->failed = 0;
+    vc->failure_reported = 0;
     pthread_mutex_unlock(&vc->slot_mutex);
 
     vc->live = 0;
@@ -1466,7 +1559,14 @@ int imVideoCaptureLive(imVideoCapture* vc, int live)
      (im_capture_dx.cpp:1233), which makes asking a disconnected handle
      whether it is live abort a debug build rather than say "no". */
   if (live == -1)
-    return vc->live;
+  {
+    /* Asks the camera rather than repeating what was asked for. This is the
+       one place a caller that never blocks in Frame can find out the device
+       has gone, and it costs two property reads. */
+    if (vc->live && !vc_CheckAlive(vc))
+      return 0;
+    return vc->live && !vc->failed;
+  }
 
   assert(vc->device != -1);
   if (vc->device == -1)
@@ -1481,6 +1581,12 @@ int imVideoCaptureLive(imVideoCapture* vc, int live)
   {
     if (live)
     {
+      /* A failed handle cannot be revived by starting it again -- AVFoundation
+         publishes a new AVCaptureDevice rather than reviving this one -- so
+         refuse rather than pay a startRunning timeout per attempt. */
+      if (vc->failed)
+        return 0;
+
       /* startRunning blocks until the session starts or fails -- typically a
          few hundred milliseconds on a built-in camera, which is what the
          reference's Sleep(VC_CAMERADELAY) (im_capture_dx.cpp:879) was
@@ -1757,14 +1863,37 @@ int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode,
       deadline = clock_gettime_nsec_np(CLOCK_MONOTONIC)
                + (uint64_t)timeout * 1000000ull;
 
-    while (!vc->slot_full && !vc->stopping)
+    while (!vc->slot_full && !vc->stopping && !vc->failed)
     {
       if (timeout < 0)
       {
-        /* Wait forever, but Disconnect can still release us: it sets stopping
-           and broadcasts, which is why that flag is in the predicate. */
-        if (pthread_cond_wait(&vc->slot_cond, &vc->slot_mutex) != 0)
+        /* "Forever" is served in one-second slices rather than as a single
+           unbounded wait. A camera that is unplugged mid-wait posts no frame
+           and, without a run loop, may post no notification either -- so an
+           unbounded pthread_cond_wait here is a hang with no way out. Waking
+           periodically lets the check below notice, and a caller who asked for
+           an infinite timeout still gets one as long as the camera is there.
+
+           Disconnect can also release us: it sets stopping and broadcasts,
+           which is why that flag is in the predicate. */
+        struct timespec ts;
+        ts.tv_sec = 1;
+        ts.tv_nsec = 0;
+        int wait = pthread_cond_timedwait_relative_np(&vc->slot_cond,
+                                                      &vc->slot_mutex, &ts);
+        if (wait != 0 && wait != ETIMEDOUT)
           break;
+
+        if (!vc->slot_full && !vc->stopping)
+        {
+          /* Dropped, because vc_CheckAlive calls into AVFoundation and nothing
+             in this file does that under slot_mutex. */
+          pthread_mutex_unlock(&vc->slot_mutex);
+          int alive = vc_CheckAlive(vc);
+          pthread_mutex_lock(&vc->slot_mutex);
+          if (!alive)
+            break;
+        }
       }
       else
       {
@@ -1805,7 +1934,15 @@ int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode,
      until after a frame has been taken out of the slot, and every path that
      returns 0 does so before this point. */
   if (!buffer)
+  {
+    /* A wait that produced nothing is the moment to ask whether the camera is
+       still there. Not done for a poll -- timeout 0 returning empty is the
+       normal case, and two property reads per poll would be a real cost in a
+       loop. */
+    if (timeout != 0)
+      vc_CheckAlive(vc);
     return 0;
+  }
 
   int ret = 0;
   if (CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly)

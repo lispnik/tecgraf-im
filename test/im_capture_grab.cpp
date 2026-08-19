@@ -29,11 +29,78 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Prints every documented attribute and what the device says about it, then
+   returns. Separate mode because it is the only way to see the answer on real
+   hardware: on this machine a USB camera reports nine of the twenty and the
+   built-in camera reports none. */
+static int show_attributes(imVideoCapture* vc)
+{
+  static const char* names[] = {
+    "VideoBrightness", "VideoContrast", "VideoHue", "VideoSaturation",
+    "VideoSharpness", "VideoGamma", "VideoColorEnable", "VideoWhiteBalance",
+    "VideoBacklightCompensation", "VideoGain", "CameraPanAngle",
+    "CameraTiltAngle", "CameraRollAngle", "CameraLensZoom", "CameraExposure",
+    "CameraIris", "CameraFocus", "FlipHorizontal", "FlipVertical",
+    "AnalogFormat"
+  };
+
+  int count = 0;
+  const char** supported = imVideoCaptureGetAttributeList(vc, &count);
+  printf("\nthis device reports %d of the 20 documented attributes\n", count);
+  for (int i = 0; i < count && supported; i++)
+    printf("  %s\n", supported[i]);
+
+  printf("\n");
+  for (int i = 0; i < 20; i++)
+  {
+    double percent = 0;
+    if (imVideoCaptureGetAttribute(vc, names[i], &percent))
+      printf("  %-28s %6.1f%%\n", names[i], percent);
+    else
+      printf("  %-28s unsupported\n", names[i]);
+  }
+  return 0;
+}
+
+/* Captures in a loop and reports when the camera goes away. Run it, then
+   unplug the camera: Frame starts returning 0, Live(-1) turns 0, and one line
+   goes to stderr explaining what happened and how to recover. */
+static int watch(imVideoCapture* vc)
+{
+  int width = 0, height = 0;
+  if (!imVideoCaptureLive(vc, 1))
+    return 1;
+  imVideoCaptureGetImageSize(vc, &width, &height);
+
+  imImage* image = imImageCreate(width, height, IM_RGB, IM_BYTE);
+  if (!image)
+    return 1;
+
+  printf("capturing %dx%d -- unplug the camera to see what happens\n", width, height);
+  for (int i = 0; i < 120; i++)
+  {
+    int got = imVideoCaptureFrame(vc, (unsigned char*)image->data[0], IM_RGB, 1000);
+    int live = imVideoCaptureLive(vc, -1);
+    printf("  frame %3d: Frame=%d Live(-1)=%d\n", i, got, live);
+    fflush(stdout);
+    if (!live)
+    {
+      printf("  the camera is gone; stopping\n");
+      break;
+    }
+  }
+
+  imImageDestroy(image);
+  return 0;
+}
+
 int main(int argc, char** argv)
 {
   int device = (argc > 1)? atoi(argv[1]): 0;
   const char* path = (argc > 2)? argv[2]: "capture.png";
   int as_gray = (argc > 3 && strcmp(argv[3], "gray") == 0);
+  int mode_attrs = (argc > 2 && strcmp(argv[2], "attrs") == 0);
+  int mode_watch = (argc > 2 && strcmp(argv[2], "watch") == 0);
 
   int count = imVideoCaptureDeviceCount();
   printf("%d capture device(s):\n", count);
@@ -67,6 +134,20 @@ int main(int argc, char** argv)
   int width = 0, height = 0;
   imVideoCaptureGetImageSize(vc, &width, &height);
   printf("\nconnected to device %d\n", device);
+
+  if (mode_attrs)
+  {
+    int result = show_attributes(vc);
+    imVideoCaptureDestroy(vc);
+    return result;
+  }
+
+  if (mode_watch)
+  {
+    int result = watch(vc);
+    imVideoCaptureDestroy(vc);
+    return result;
+  }
 
   int formats = imVideoCaptureFormatCount(vc);
   if (formats > 0)
