@@ -65,7 +65,7 @@ static int show_attributes(imVideoCapture* vc)
 /* Captures in a loop and reports when the camera goes away. Run it, then
    unplug the camera: Frame starts returning 0, Live(-1) turns 0, and one line
    goes to stderr explaining what happened and how to recover. */
-static int watch(imVideoCapture* vc)
+static int watch(imVideoCapture* vc, int frames)
 {
   int width = 0, height = 0;
   if (!imVideoCaptureLive(vc, 1))
@@ -76,8 +76,9 @@ static int watch(imVideoCapture* vc)
   if (!image)
     return 1;
 
-  printf("capturing %dx%d -- unplug the camera to see what happens\n", width, height);
-  for (int i = 0; i < 120; i++)
+  printf("capturing %dx%d for up to %d frames -- disconnect the camera to see "
+         "what happens\n", width, height, frames);
+  for (int i = 0; i < frames; i++)
   {
     int got = imVideoCaptureFrame(vc, (unsigned char*)image->data[0], IM_RGB, 1000);
     int live = imVideoCaptureLive(vc, -1);
@@ -144,7 +145,11 @@ int main(int argc, char** argv)
 
   if (mode_watch)
   {
-    int result = watch(vc);
+    /* A count rather than a fixed two minutes: the interesting event needs a
+       person to cause it at a moment of their choosing, and a loop that ends
+       first tests nothing. */
+    int frames = (argc > 3)? atoi(argv[3]): 120;
+    int result = watch(vc, frames);
     imVideoCaptureDestroy(vc);
     return result;
   }
