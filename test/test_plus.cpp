@@ -30,6 +30,7 @@
    entry points directly, which needs the header. */
 #include <im_util.h>
 
+#include <math.h>
 #include <string.h>
 #include <string>
 

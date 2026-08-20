@@ -119,6 +119,49 @@ imImage* int_kernel(int size, const int* weights)
   return kernel;
 }
 
+/* Where the worst difference is, not merely how large it is.
+
+   A golden comparison that fails with "179 == 0" says nothing about whether the
+   disagreement is at a border, where the two libraries legitimately pad
+   differently, or in the interior, where it would mean the operation itself
+   differs. On a platform the author cannot run -- these cases are checked on
+   four -- that distinction is the whole of the diagnosis, and it is not
+   recoverable after the fact. */
+void report_worst(const imImage* a, const imImage* b, int margin, const char* what)
+{
+  int worst = 0, at_x = -1, at_y = -1, got = 0, want = 0, differing = 0;
+
+  for (int y = margin; y < a->height - margin; y++)
+  {
+    for (int x = margin; x < a->width - margin; x++)
+    {
+      int i = y * a->width + x;
+      int mine = (int)((imbyte*)a->data[0])[i];
+      int theirs = (int)((imbyte*)b->data[0])[i];
+      int diff = mine - theirs;
+      if (diff < 0) diff = -diff;
+      if (diff == 0) continue;
+
+      differing++;
+      if (diff > worst)
+      {
+        worst = diff; at_x = x; at_y = y; got = mine; want = theirs;
+      }
+    }
+  }
+
+  if (worst == 0)
+    return;
+
+  int border = (at_x < 3 || at_y < 3 ||
+                at_x >= a->width - 3 || at_y >= a->height - 3);
+
+  MESSAGE(std::string(what) << ": worst difference " << worst << " at (" << at_x
+          << "," << at_y << ") -- got " << got << ", expected " << want << "; "
+          << differing << " of " << (a->width * a->height) << " samples differ; "
+          << "that pixel is " << (border? "within 3 of a border": "in the interior"));
+}
+
 /* A filter that returned its input unchanged, or a constant, would satisfy a
    "close enough to the reference" assertion if the reference happened to be
    close to the input. It is not, on this source -- but assert it rather than
@@ -221,6 +264,7 @@ TEST_CASE("golden: the minimum and maximum filters match exactly, borders includ
        the choice of element rather than the choice of neighbourhood. */
     imImage* want = load_golden("min5.pgm");
     REQUIRE(imProcessRankMinConvolve(src, dst, 5) != 0);
+    report_worst(dst, want, 0, "RankMinConvolve 5x5");
     CHECK(worst_difference(dst, want, 0) == 0);
     check_actually_filtered(dst, src);
     imImageDestroy(want);
@@ -229,6 +273,7 @@ TEST_CASE("golden: the minimum and maximum filters match exactly, borders includ
   {
     imImage* want = load_golden("max5.pgm");
     REQUIRE(imProcessRankMaxConvolve(src, dst, 5) != 0);
+    report_worst(dst, want, 0, "RankMaxConvolve 5x5");
     CHECK(worst_difference(dst, want, 0) == 0);
     check_actually_filtered(dst, src);
     imImageDestroy(want);
