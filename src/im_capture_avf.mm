@@ -1089,6 +1089,7 @@ const char** imVideoCaptureGetAttributeList(imVideoCapture* vc, int *num_attrib)
 *************************************************************************/
 
 static void vc_FlushSlotLocked(imVideoCapture* vc);
+static void vc_ReportIfSuspended(imVideoCapture* vc);
 
 /* How long to wait for the user to answer the camera prompt, in seconds. */
 #define VC_AUTH_TIMEOUT 30
@@ -1209,6 +1210,13 @@ static int vc_LearnDeliveredSize(imVideoCapture* vc)
   pthread_mutex_unlock(&vc->slot_mutex);
 
   [vc->session stopRunning];
+
+  /* No frame in two seconds. A suspended device does exactly this, and it is
+     worth saying so here rather than letting Connect return a provisional size
+     and SetImageSize refuse every change with no reason given. */
+  if (!learned)
+    vc_ReportIfSuspended(vc);
+
   return learned;
 }
 
@@ -1282,6 +1290,24 @@ static int vc_IsSuspended(imVideoCapture* vc)
     return 0;
 
   return suspended? 1: 0;
+}
+
+/* Says once, per handle, that this device is suspended -- if it is.
+
+   Called from every path that ends in "nothing arrived": a frame that timed
+   out, and a size change that could not be verified because verifying means
+   waiting for a frame. Both look like a fault and neither is one. */
+static void vc_ReportIfSuspended(imVideoCapture* vc)
+{
+  if (vc->suspend_reported || !vc_IsSuspended(vc))
+    return;
+
+  vc->suspend_reported = 1;
+  fprintf(stderr,
+    "im_capture: device %d is suspended -- it is connected and answering, but "
+    "it will deliver no frames until it is resumed, so anything that waits for "
+    "one will fail. On a built-in camera this is a closed laptop lid; on some "
+    "cameras it is a privacy shutter.\n", vc->device);
 }
 
 /* Whether the camera is still there, asked synchronously.
@@ -1971,19 +1997,7 @@ int imVideoCaptureFrame(imVideoCapture* vc, unsigned char* data, int color_mode,
        normal case, and two property reads per poll would be a real cost in a
        loop. */
     if (timeout != 0 && vc_CheckAlive(vc))
-    {
-      /* Still connected and still running, but nothing is coming out. A
-         suspended device behaves exactly like this and says so if asked. */
-      if (!vc->suspend_reported && vc_IsSuspended(vc))
-      {
-        vc->suspend_reported = 1;
-        fprintf(stderr,
-          "im_capture: device %d is suspended -- it is connected and answering, "
-          "but it will deliver no frames until it is resumed. On a built-in "
-          "camera this is a closed laptop lid; on some cameras it is a privacy "
-          "shutter.\n", vc->device);
-      }
-    }
+      vc_ReportIfSuspended(vc);
     return 0;
   }
 
@@ -2059,13 +2073,15 @@ int imVideoCaptureOneFrame(imVideoCapture* vc, unsigned char* data, int color_mo
   return ret;
 }
 
-/* FormatCount and GetFormat are implemented; SetFormat is not.
+/* All three of FormatCount, GetFormat and SetFormat are implemented, but
+   SetFormat is a lookup on top of SetImageSize rather than an operation of its
+   own -- see the note on it below.
 
-   Reading the list is what makes SetImageSize usable at all: im_capture.h:186
-   names GetFormat as the way to discover valid sizes, so with both stubbed a
+   Reading the list is what makes either of them usable at all: im_capture.h:186
+   names GetFormat as the way to discover valid sizes, so with it stubbed a
    caller could only guess. The list is candidates rather than guarantees --
-   see the note on vc_PresetTable, and expect SetImageSize to refuse some of
-   them, on some cameras all but one. Setting a format is a different matter -- the
+   see the note on vc_PresetTable, and expect a set to be refused, on some
+   cameras every one but the size already in force. Setting a format is a different matter -- the
    API's notion of a format is a size plus an encoding, this backend asks the
    driver for BGRA regardless, and so the only part of a format selection that
    would mean anything here is the size, which SetImageSize already does. */
@@ -2112,6 +2128,9 @@ int imVideoCaptureGetFormat(imVideoCapture* vc, int format, int *width, int *hei
   }
 }
 
+/* Defined below; SetFormat is a lookup on top of it. */
+int imVideoCaptureSetImageSize(imVideoCapture* vc, int width, int height);
+
 int imVideoCaptureSetFormat(imVideoCapture* vc, int format)
 {
   assert(vc);
@@ -2138,5 +2157,27 @@ int imVideoCaptureSetFormat(imVideoCapture* vc, int format)
   }
 
   assert(vc->device != -1);
-  return 0;
+  if (vc->device == -1 || format < 0 || format >= (int)vc->format_list.count)
+    return 0;
+
+  /* A format in this API is a size plus an encoding, and here the encoding is
+     not a choice: every frame is requested from the driver as 32BGRA and
+     converted, whatever the camera shoots natively, which is why
+     imVideoCaptureGetFormat reports "BGRA" for every entry. So the only part
+     of a format that can be selected is its size, and selecting a size is
+     imVideoCaptureSetImageSize -- including the part that matters, which is
+     running the camera afterwards to find out whether the preset was actually
+     honoured rather than merely accepted.
+
+     Hence this is a lookup and a forward rather than a second implementation.
+     The header points the same way ("Should NOT work for DV devices. Use
+     imVideoCaptureSetImageSize only"), but a caller who has just walked the
+     list with GetFormat will reach for SetFormat next, and being told 0 with no
+     way to know why is a worse answer than doing the obvious thing. */
+  int width = 0, height = 0;
+  vc_PresetSize(vc->format_list[format], &width, &height);
+  if (width == 0 || height == 0)
+    return 0;
+
+  return imVideoCaptureSetImageSize(vc, width, height);
 }

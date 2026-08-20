@@ -240,6 +240,10 @@ The practical test for "will this camera have controls" is the transport type â€
 a `usb` camera very likely does, a `bltn` one does not â€” but the only honest
 answer is to ask, which is what `imVideoCaptureGetAttributeList` is for.
 
+Measured with the laptop lid both open and closed, because a closed lid
+suspends a built-in camera and it was worth ruling out as the cause: the
+built-in camera reports zero controls either way.
+
 ```sh
 open -W --stdout /dev/stdout -a build/lib/im_capture_grab.app --args 0 attrs
 ```
