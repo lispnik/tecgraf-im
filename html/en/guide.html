@@ -55,43 +55,33 @@
   This library contains all the <b>Image Representation</b> functions and all the <b>Image Storage</b> functions (with 
   the exception of the external formats: AVI, JP2 and WMV).</p>
   <p>Each external format or processing usually needs a &lt;im_xx.h&gt; file and a &quot;im_xx.lib/libim_xx.a/libim_xx.so&quot; file.</p>
-  <p>Even if your application is only in C, you must link with a C++ capable linker. Using Tecmake set &quot;LINKER := g++&quot; 
-  in your &quot;config.mak&quot; when compiling with gcc (UNIX and Windows).</p>
+  <p>Even if your application is only in C, you must link with a C++ capable
+  linker. That is still true; only the way to arrange it has changed with the
+  build system.</p>
   <p>The download files list includes the <a href="download_tips.html">Tecgraf/PUC-Rio Library Download Tips</a> 
   document, with a description of all the available binaries.</p>
 
 <h3 align="left"><a name="buildlib">Building the Library</a> </h3>
 
-<p>In the Downloads you will be able to find pre-compiled binaries for many 
-platforms, all those binaries were built using Tecmake. Tecmake is a command line multi compiler build tool 
-based on GNU make, available at
-  <a target="_blank" href="http://www.tecgraf.puc-rio.br/tecmake">http://www.tecgraf.puc-rio.br/tecmake</a>. Tecmake is 
-  used by all the Tecgraf libraries and many applications.</p>
-<p>You do not need to install Tecmake, scripts for Posix and Windows systems are already included in the source code package. Just type &quot;make&quot; 
-in the command line on the main folder and all libraries and executables will be 
-build.</p>
-<p>In Linux, check the &quot;<a href="building.html">Building Lua, IM, CD and IUP in 
-Linux</a>&quot; guide.</p>
-<p>In Windows, check the &quot;<a href="buildwin.html">Building Lua, IM, CD and IUP in 
-Window</a>&quot; guide.</p>
-<p>If you decide to install Tecmake, the Tecmake configuration 
-files (*.mak) are available at the &quot;src&quot; folder, and are very easy to understand. 
-In the<b> </b>main folder, and in each source folder, there are files 
-named 
-<i>make_uname.bat</i> that build the libraries using <b>Tecmake</b>. To build 
-for Windows using Visual C 9.0 (2008) for example, just execute <i>&quot;make_uname 
-vc9&quot;</i> in the iup main folder, or for the DLLs type <i>
-&quot;make_uname dll9&quot;</i>. The Visual Studio workspaces with the respective projects 
-available in the source package is for debugging purposes only.</p>
-<p>Make sure you have all the dependencies for the library you want installed, 
-see the documentation bellow.</p>
-<p>If you are going to build all the libraries, 
-the makefiles and projects expect the following directory tree:</p>
-<pre>\mylibs\
-        im\
-        lua5.1\</pre>
-<p>To control that location set the TECTOOLS_HOME environment variable to the 
-folder were the Lua libraries are installed.</p>
+<p><b>This fork builds with CMake.</b> The Tecmake makefiles, the
+<i>make_uname</i> scripts and the Visual Studio projects were removed; nothing in
+this tree can be built with them, and the pages that describe them are kept only
+as a record of how upstream did it.</p>
+
+<pre>cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j</pre>
+
+<p>Everything lands in <i>build/lib</i>. Per-platform dependency commands, the
+build options and the reasoning behind the less obvious ones are in
+<b>BUILDING.md</b> at the root of the source tree, which is the authoritative
+build document for this fork.</p>
+
+<p>The libraries produced are not quite upstream's set either: there is no AVI or
+WMV driver, JPEG 2000 and FFTW3 are optional, and HEIC/AVIF and video capture are
+additions that default to off. The dependency notes below still apply, except
+that the bundled third-party trees were dropped in favour of system packages --
+only a small liblzf fallback remains, used on Windows.</p>
+
 <h4>Libraries Dependencies</h4>
 <pre>im -&gt; <span class="style2"><strong>libjpeg</strong></span> (included)
    -&gt; <strong><span class="style2">libpng</span></strong>  
@@ -125,8 +115,10 @@ libraries): IM has NO external dependencies, and IMLua depends on Lua.</p>
 depend on the <a href="http://luabinaries.luaforge.net/">LuaBinaries</a> 
 distribution. So if you are going to build from source, then use the <strong>LuaBinaries</strong> 
 source package also, not the <strong>Lua.org</strong> original source package. 
-If you like to use another location for the Lua files define LUA_SUFFIX, LUA_INC, 
-LUA_LIB and LUA_BIN before using Tecmake.</p>
+This fork uses the Lua found by CMake's own <i>FindLua</i>; to point it elsewhere
+set LUA_INCLUDE_DIR and LUA_LIBRARY at configure time. On macOS that is not
+optional -- Lua 5.5 does not compile against these bindings, so 5.4 has to be
+named explicitly. See BUILDING.md.</p>
 
 <h3><a name="CD">CD Compatibility</a></h3>
 
