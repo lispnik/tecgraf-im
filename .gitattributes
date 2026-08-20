@@ -1,0 +1,30 @@
+# Binary assets must never have their line endings rewritten.
+#
+# Git decides text-vs-binary by a content heuristic, and it misjudges image
+# data that happens to contain no NUL byte. That is not hypothetical here:
+# test/fixtures/golden/max5.pgm was the one fixture in the tree git called
+# text, so a Windows checkout with core.autocrlf=true turned the three LFs in
+# its "P5\n32 24\n255\n" header into CRLFs. imBinFileReadInteger then consumed
+# the \r as the single whitespace byte the PNM spec says follows the maxval,
+# the \n became pixel zero, and the whole golden image was read one byte
+# late -- 462 of its 768 samples wrong, on Windows only, with the committed
+# file and the library both perfectly correct.
+#
+# Which files the heuristic misjudges depends on their pixel values, so
+# regenerating a fixture can silently move the problem to a different file.
+# Name the formats instead of trusting the guess.
+
+*.pgm   binary
+*.ppm   binary
+*.pbm   binary
+*.pnm   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.heic  binary
+*.avif  binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.class binary

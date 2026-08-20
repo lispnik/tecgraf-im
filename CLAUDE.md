@@ -117,6 +117,16 @@ assertions were written from. Read the header of `regenerate.sh` before touching
 separate conventions have to match before IM and ImageMagick agree at all, and getting any
 of them wrong looks convincingly like a defect in this library.
 
+**A regenerated fixture must stay covered by `.gitattributes`.** git guesses text-vs-binary
+from content, and it guessed wrong on `max5.pgm` — a PNM with no NUL byte in it. On a
+Windows checkout with `core.autocrlf=true` the LFs in its `P5\n32 24\n255\n` header became
+CRLFs; `imBinFileReadInteger` consumes exactly one whitespace byte after the maxval, as the
+PNM spec requires, so it ate the `\r` and the `\n` became pixel zero. The entire golden was
+read one byte late — 462 of 768 samples wrong, on one platform, with the committed file and
+the library both correct. `.gitattributes` names the formats binary so nothing is left to
+the heuristic, and `test_golden.cpp` checks each fixture's header for CRLF so the next
+occurrence says so in one line instead of presenting as a filter bug.
+
 Also available, but not run by CI and not assertions: `build/lib/document_enhance <in>
 <out>` and `document_enhance_v2`, CLI demos with no expected output. Fixture images live
 in `html/examples/` (`lena.jpg`, `rice.png`, `flower.jpg`); `imCalcRMSError`

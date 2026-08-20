@@ -156,10 +156,16 @@ void report_worst(const imImage* a, const imImage* b, int margin, const char* wh
   int border = (at_x < 3 || at_y < 3 ||
                 at_x >= a->width - 3 || at_y >= a->height - 3);
 
+  /* Every string streamed into MESSAGE is wrapped, including the literals
+     below: doctest prints a bare const char* as its address, so an unwrapped
+     one silently replaces the answer with a pointer. That cost a CI round trip
+     on the very failure this function was added to diagnose. */
+
   MESSAGE(std::string(what) << ": worst difference " << worst << " at (" << at_x
           << "," << at_y << ") -- got " << got << ", expected " << want << "; "
           << differing << " of " << (a->width * a->height) << " samples differ; "
-          << "that pixel is " << (border? "within 3 of a border": "in the interior"));
+          << "that pixel is "
+          << std::string(border? "within 3 of a border": "in the interior"));
 }
 
 /* A filter that returned its input unchanged, or a constant, would satisfy a
@@ -184,6 +190,57 @@ void check_actually_filtered(const imImage* result, const imImage* source)
 
 } /* namespace */
 
+
+TEST_CASE("golden: the fixtures survived checkout without EOL conversion")
+{
+  /* Every fixture here is a binary PNM whose header begins "P5\n" or "P6\n".
+     A checkout that treated one as text rewrites those LFs to CRLF, and the
+     damage is not confined to the header: imBinFileReadInteger consumes
+     exactly one whitespace byte after the maxval -- correct, since the PNM
+     spec says a single whitespace character follows it -- so it eats the \r
+     and the \n becomes the first pixel. The whole image is then read one byte
+     late.
+
+     That happened. git classifies text-vs-binary by a content heuristic, and
+     max5.pgm was the one file in the tree it guessed wrong, so with
+     core.autocrlf=true only that fixture was corrupted and only on Windows:
+     462 of its 768 samples wrong while the committed file and the library
+     were both correct. It presented as a Windows-specific bug in the maximum
+     filter and took a CI round trip per hypothesis to place.
+
+     .gitattributes now marks these formats binary, which is the actual fix.
+     This case is here because the heuristic is content-dependent -- a
+     regenerated fixture can move the problem to a different file -- and
+     because one failed assertion naming the cause is worth more than a
+     bewildering pixel mismatch on the one platform the author cannot run. */
+
+  static const char* const fixtures[] = {
+    "src.pgm", "src_bin.pgm", "src_rgb.ppm",
+    "min3.pgm", "max3.pgm", "min5.pgm", "max5.pgm", "range3.pgm",
+    "open3.pgm", "close3.pgm", "bin_dilate3.pgm", "bin_erode3.pgm",
+    "median3.pgm", "median5.pgm", "median7.pgm", "mean3.pgm",
+    "conv_asym3.pgm", "gauss5.pgm", "resize_near2x.pgm", "otsu.pgm",
+    "rgb2gray601.pgm", "rgb2ycbcr.ppm", "rgb2xyz.ppm", "rgb2lab.ppm",
+  };
+
+  for (size_t i = 0; i < sizeof(fixtures)/sizeof(fixtures[0]); i++)
+  {
+    std::string path = golden(fixtures[i]);
+    FILE* file = fopen(path.c_str(), "rb");
+    REQUIRE_MESSAGE(file != NULL, "could not open " << std::string(fixtures[i]));
+
+    char head[3] = { 0, 0, 0 };
+    size_t read = fread(head, 1, 3, file);
+    fclose(file);
+
+    REQUIRE(read == 3);
+    CHECK(head[0] == 'P');
+    CHECK_MESSAGE(head[2] == '\n',
+                  std::string(fixtures[i]) << " has a CRLF header -- it was "
+                  "checked out with line-ending conversion applied and its "
+                  "pixel data is shifted; see .gitattributes");
+  }
+}
 
 TEST_CASE("golden: the source fixture is what the reference was made from")
 {
