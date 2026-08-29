@@ -69,9 +69,18 @@ jobs:
           set -euo pipefail
 
           if [ -z "${DISPATCH_TOKEN:-}" ]; then
-            echo "::notice::DISPATCH_TOKEN is not set; skipping downstream notification."
-            echo "Create a token that can write to $DOWNSTREAM and add it as the"
-            echo "DISPATCH_TOKEN secret on this repository to enable this step."
+            # A warning, not a notice. This workflow's whole purpose is to
+            # fire, and an unconfigured notifier that reports success looks
+            # exactly like a working one -- which is how the downstream
+            # listener sat waiting for a dispatch nobody was sending. The step
+            # still exits 0, because failing every push to the default branch
+            # over a missing optional credential would be worse.
+            echo "::warning title=Downstream not notified::DISPATCH_TOKEN is not set, so $DOWNSTREAM was not told about $SHA."
+            echo "This repository needs a token that can create a repository_dispatch on"
+            echo "$DOWNSTREAM, stored as the DISPATCH_TOKEN secret. A fine-grained PAT"
+            echo "scoped to $DOWNSTREAM alone with Contents: read and write is enough;"
+            echo "GITHUB_TOKEN cannot do it, because GitHub blocks cross-repository"
+            echo "triggering to prevent dispatch loops."
             exit 0
           fi
 

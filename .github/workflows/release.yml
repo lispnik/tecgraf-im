@@ -220,11 +220,44 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           set -uo pipefail
+
+          # IM loads in three layers, and each may leave undefined whatever the
+          # layer beneath it provides:
+          #
+          #   libim                     resolves alone
+          #   libim_process(_omp)       resolves against libim
+          #   libim_fftw3, _heif, ...   resolve against libim + libim_process
+          #
+          # That is the order a consumer opens them in, with global visibility,
+          # so an add-on calling imImageCopy or imProcessMultiplyConj without
+          # linking either library is working as designed rather than broken.
+          #
+          # Checking every library against libim alone -- which is what this
+          # step did first -- fails libim_fftw3 on imProcessConvertDataType and
+          # imProcessMultiplyConj, which come from libim_process. Checking
+          # nothing but the core would pass anything. Layering is what makes
+          # the check both correct and worth having: a genuinely missing
+          # dependency in an add-on still fails it.
+          exports() { nm -D --defined-only "$1" 2>/dev/null | awk '{print $NF}'; }
+          undefined() {
+            # awk on the third field, not a regex containing [^ \t(]: inside a
+            # POSIX bracket expression \t is a literal backslash and the letter
+            # t, so that class would also drop every t in a symbol name and
+            # truncate imCounterInc to imCoun.
+            ldd -r "$1" 2>&1 | awk '/undefined symbol:/ {print $3}' | sort -u
+          }
+
           core=install/lib/libim.so
           test -f "$core" || { echo "::error::no libim.so to check against"; exit 1; }
-          core_syms="$(mktemp)"
-          nm -D --defined-only "$core" | awk '{print $NF}' | sort -u > "$core_syms"
-          echo "libim.so exports $(wc -l < "$core_syms") symbols"
+
+          base="$(mktemp)"; exports "$core" | sort -u > "$base"
+          withproc="$(mktemp)"
+          { cat "$base"
+            for pl in install/lib/libim_process.so install/lib/libim_process_omp.so; do
+              [ -f "$pl" ] && exports "$pl"
+            done
+          } | sort -u > "$withproc"
+          echo "libim exports $(wc -l < "$base"); with libim_process, $(wc -l < "$withproc")"
 
           status=0
           seen=""
@@ -234,30 +267,23 @@ jobs:
             case " $seen " in *" $real "*) continue ;; esac
             seen="$seen $real"
 
-            undef="$(mktemp)"
-            # awk on the third field, not a regex with [^ \t(] in it: inside a
-            # POSIX bracket expression \t is a literal backslash and the letter
-            # t, so that class would also exclude every t in a symbol name and
-            # truncate imCounterInc to imCoun.
-            ldd -r "$lib" 2>&1 \
-              | awk '/undefined symbol:/ {print $3}' | sort -u > "$undef"
-            if [ ! -s "$undef" ]; then
-              echo "$lib: clean"
-              continue
-            fi
+            u="$(mktemp)"; undefined "$lib" > "$u"
+            if [ ! -s "$u" ]; then echo "$lib: clean"; continue; fi
 
-            if [ "$real" = "$(readlink -f "$core")" ]; then
-              missing="$(cat "$undef")"          # the core must resolve alone
-            else
-              missing="$(comm -23 "$undef" "$core_syms")"
-            fi
+            case "$(basename "$real")" in
+              libim.so*)                    provided=/dev/null; layer="alone" ;;
+              libim_process.so*|libim_process_omp.so*)
+                                            provided="$base";   layer="libim" ;;
+              *)                            provided="$withproc"; layer="libim + libim_process" ;;
+            esac
 
+            missing="$(comm -23 "$u" "$provided")"
             if [ -n "$missing" ]; then
-              echo "::error::$lib needs symbols that libim.so does not export:"
+              echo "::error::$lib needs symbols not provided by $layer:"
               printf '  %s\n' $missing
               status=1
             else
-              echo "$lib: resolves against libim.so ($(wc -l < "$undef") symbols)"
+              echo "$lib: $(wc -l < "$u") undefined, all provided by $layer"
             fi
           done
           exit $status
