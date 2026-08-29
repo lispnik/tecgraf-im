@@ -29,7 +29,10 @@ cmake --build build --target im_process
 Dependency install commands per platform are in `BUILDING.md`. Build options:
 `IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_JP2`, `IM_BUILD_FFTW3`,
 `IM_BUILD_LUA` (all default ON), `IM_BUILD_HEIF` and `IM_BUILD_CAPTURE` (both
-default OFF, see below), plus
+default OFF, see below), `IM_BUILD_AVI` and `IM_BUILD_WMV` (default OFF,
+Windows-only, and each additionally gated on a `check_include_file_cxx` probe
+for `vfw.h` / `wmsdk.h` — the WMV one needs the separately-distributed Windows
+Media Format 11 SDK and is not expected to be found on CI), plus
 `IM_BUNDLE_LZF` (default OFF) to force the vendored liblzf.
 
 Everything lands in `build/lib/`.
@@ -249,6 +252,34 @@ Match the surrounding style when editing — don't opportunistically modernize.
 
 ## CI
 
-`.github/workflows/ci-{linux,macos,windows}.yml` build on Ubuntu 22.04/24.04,
-macOS 14/15 (Apple Silicon only), and windows-2022 via vcpkg. Triggers are limited to
-`master`, `cmake-build`, `macos-system-libs-and-fixes`, and `ci-*` branches.
+`.github/workflows/ci-{linux,macos,windows}.yml` build on Ubuntu 22.04/24.04
+(amd64) and 24.04-arm (aarch64), macOS 14/15 (Apple Silicon only), and
+windows-2022 via vcpkg. Triggers are limited to `master`, `cmake-build`,
+`macos-system-libs-and-fixes`, and `ci-*` branches.
+
+The arm64 Linux entry exists for downstream consumers: Linux here was x86_64
+only, so anything binding this library could ship amd64 and macOS builds but
+not arm64 Linux ones.
+
+### Notifying downstream
+
+`.github/workflows/notify-downstream.yml` tells lispnik/im (the Common Lisp
+CFFI bindings) that a commit built everywhere, so it can retest against the
+new artifacts. It runs on `workflow_run` after each of the three build
+workflows completes, checks whether the other two have also finished
+successfully **at the same head SHA**, and only then POSTs a
+`repository_dispatch` of type `tecgraf-im-build-complete` carrying that SHA and
+each platform's run id. The run ids are what let the consumer fetch artifacts
+from one specific upstream run instead of guessing "latest master".
+
+Two things about it are easy to trip over:
+
+- **It needs a `DISPATCH_TOKEN` secret.** `GITHUB_TOKEN` cannot trigger a
+  workflow in another repository -- GitHub blocks that to prevent dispatch
+  loops. A fine-grained PAT scoped to lispnik/im with **Contents: read and
+  write** is the minimum the dispatches endpoint accepts. Without the secret
+  the step logs a notice and exits 0, so builds stay green and the
+  notification simply does not happen.
+- **workflow_run always uses the copy on the default branch.** Editing this
+  file on a branch has no effect until it is merged to master, however the
+  triggering builds are configured.

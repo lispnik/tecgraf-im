@@ -334,6 +334,80 @@ if(IM_BUILD_HEIF)
 endif()
 
 # ----------------------------------------------------------------------
+# libim_avi and libim_wmv (Windows video format drivers)
+# ----------------------------------------------------------------------
+
+# Both drivers have been in src/ and include/ since the import, each with a
+# .def file listing its single registration function, but neither had a
+# target -- so imFormatRegisterAVI and imFormatRegisterWMV were declared,
+# documented, and impossible to call. Anything binding this library (the
+# Common Lisp CFFI bindings in lispnik/im, for one) had a dead entry point
+# for each. These targets close that gap.
+#
+# Both are Windows-only and both depend on the imDib* family, which is itself
+# only compiled into libim on WIN32 (see IM_SOURCES above) -- so there is no
+# non-Windows configuration in which either could link, and no stub fallback
+# worth writing: unlike capture, a format driver that registers itself and
+# then fails every read is worse than an absent one.
+#
+# They differ in how obtainable their SDK is, which is why each gets its own
+# probe rather than one shared IM_BUILD_VIDEO switch:
+#
+#   AVI needs <vfw.h> (Video for Windows) and vfw32.lib. Both still ship in
+#   the current Windows SDK, so this builds on a stock windows-2022 runner.
+#
+#   WMV needs <wmsdk.h> and wmvcore.lib from the Windows Media Format 11 SDK,
+#   which Microsoft documents as a legacy feature superseded by Source Reader
+#   / Sink Writer and distributes separately from the Windows SDK. It is not
+#   expected to be present on a CI runner. Probing rather than assuming means
+#   a developer who does have it installed gets the driver, and everyone else
+#   gets a clear status line instead of a configure error.
+#
+# Hence: default OFF like the other add-ons, and even when switched ON each
+# target appears only if its header is actually found.
+
+option(IM_BUILD_AVI "Build libim_avi (AVI format driver, Windows + Video for Windows)" OFF)
+option(IM_BUILD_WMV "Build libim_wmv (WMV format driver, Windows + Media Format SDK)"  OFF)
+
+if(IM_BUILD_AVI OR IM_BUILD_WMV)
+    include(CheckIncludeFileCXX)
+endif()
+
+if(IM_BUILD_AVI)
+    if(NOT WIN32)
+        message(STATUS "IM_BUILD_AVI ignored: the AVI driver is Windows-only")
+    else()
+        check_include_file_cxx(vfw.h IM_HAVE_VFW_H)
+        if(IM_HAVE_VFW_H)
+            add_library(im_avi SHARED src/im_format_avi.cpp)
+            im_add_def_file(im_avi "${CMAKE_SOURCE_DIR}/src/im_avi.def")
+            target_include_directories(im_avi PRIVATE ${CMAKE_SOURCE_DIR}/include)
+            target_link_libraries(im_avi PRIVATE im vfw32)
+        else()
+            message(STATUS "IM_BUILD_AVI ignored: <vfw.h> not found in the Windows SDK")
+        endif()
+    endif()
+endif()
+
+if(IM_BUILD_WMV)
+    if(NOT WIN32)
+        message(STATUS "IM_BUILD_WMV ignored: the WMV driver is Windows-only")
+    else()
+        check_include_file_cxx(wmsdk.h IM_HAVE_WMSDK_H)
+        if(IM_HAVE_WMSDK_H)
+            add_library(im_wmv SHARED src/im_format_wmv.cpp)
+            im_add_def_file(im_wmv "${CMAKE_SOURCE_DIR}/src/im_wmv.def")
+            target_include_directories(im_wmv PRIVATE ${CMAKE_SOURCE_DIR}/include)
+            target_link_libraries(im_wmv PRIVATE im wmvcore)
+        else()
+            message(STATUS
+                "IM_BUILD_WMV ignored: <wmsdk.h> not found. It ships in the Windows Media "
+                "Format 11 SDK, which is a separate download from the Windows SDK.")
+        endif()
+    endif()
+endif()
+
+# ----------------------------------------------------------------------
 # libim_capture (live video capture)
 # ----------------------------------------------------------------------
 
@@ -523,6 +597,7 @@ endif()
 include(GNUInstallDirs)
 set(_im_targets im)
 foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif im_capture
+                   im_avi im_wmv
                    imlua imlua_process imlua_jp2 imlua_fftw3 imlua_heif imlua_capture)
     if(TARGET ${t})
         list(APPEND _im_targets ${t})
@@ -579,5 +654,18 @@ message(STATUS "  libim_process_omp   ${IM_BUILD_PROCESS_OMP}")
 message(STATUS "  libim_jp2           ${IM_BUILD_JP2}")
 message(STATUS "  libim_fftw3         ${IM_BUILD_FFTW3}")
 message(STATUS "  libim_heif          ${IM_BUILD_HEIF}")
+# Report whether the target actually exists, not just what was asked for:
+# both of these are silently skipped when their SDK header is missing, and
+# "ON" against a library that was never built is the more misleading answer.
+if(TARGET im_avi)
+    message(STATUS "  libim_avi           ON")
+else()
+    message(STATUS "  libim_avi           OFF")
+endif()
+if(TARGET im_wmv)
+    message(STATUS "  libim_wmv           ON")
+else()
+    message(STATUS "  libim_wmv           OFF")
+endif()
 message(STATUS "  Lua bindings        ${IM_BUILD_LUA}")
 message(STATUS "")

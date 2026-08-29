@@ -59,8 +59,41 @@ lookups; no other configuration is required.
 | `IM_BUILD_LUA`         | ON      | Lua 5.x bindings (imlua + add-ons)   |
 | `IM_BUILD_HEIF`        | OFF     | HEIC/AVIF support (needs libheif)    |
 | `IM_BUILD_CAPTURE`     | OFF     | Video capture (real only on macOS)   |
+| `IM_BUILD_AVI`         | OFF     | AVI driver (Windows + `vfw.h`)       |
+| `IM_BUILD_WMV`         | OFF     | WMV driver (Windows + `wmsdk.h`)     |
 
 Disable any of them with e.g. `-DIM_BUILD_JP2=OFF`.
+
+## AVI and WMV
+
+Both drivers are Windows-only: they are built on the `imDib*` family, which is
+itself compiled into `libim` only on Windows. Turning either on elsewhere logs a
+status line and builds nothing.
+
+Even on Windows each one is gated on a header probe, because the two SDKs are
+not equally obtainable:
+
+| Driver | Needs | Availability |
+|---|---|---|
+| `libim_avi` | `<vfw.h>`, `vfw32.lib` | Ships in the current Windows SDK. Builds on a stock runner. |
+| `libim_wmv` | `<wmsdk.h>`, `wmvcore.lib` | Windows Media Format 11 SDK — a **separate download**, documented by Microsoft as superseded by Source Reader / Sink Writer. Not present on CI runners. |
+
+So `-DIM_BUILD_WMV=ON` on a machine without that SDK is not an error; the
+configure step reports
+
+```
+IM_BUILD_WMV ignored: <wmsdk.h> not found. It ships in the Windows Media
+Format 11 SDK, which is a separate download from the Windows SDK.
+```
+
+and carries on. The configure summary at the end reports whether each target
+was actually created, rather than what was requested — an `ON` next to a
+library that was skipped would be the more misleading answer.
+
+These targets exist because `imFormatRegisterAVI` and `imFormatRegisterWMV`
+were declared in `include/`, listed in `src/im_avi.def` and `src/im_wmv.def`,
+and documented — but had no target, so nothing built them and every consumer
+had two dead entry points.
 
 ## HEIC / AVIF, and why it is off by default
 

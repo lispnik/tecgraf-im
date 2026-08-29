@@ -1,0 +1,139 @@
+name: Notify downstream
+
+# Tell repositories that bind this library that a new set of build artifacts
+# exists, so they can rebuild and retest against it.
+#
+# Today the only consumer is lispnik/im, the Common Lisp CFFI bindings, which
+# has listened for a repository_dispatch of type `tecgraf-im-build-complete`
+# for some time. Nothing ever sent one, so that listener had never fired and
+# the bindings were only ever tested against whatever libraries a developer
+# happened to have built locally. This workflow is the missing sender.
+#
+# Why workflow_run rather than a step at the end of each build job: a step
+# inside ci-linux would fire once per matrix entry and would know nothing about
+# whether macOS and Windows had even finished, so the downstream repo would
+# start fetching artifacts that did not exist yet. workflow_run runs after a
+# whole workflow concludes, and can ask about the other two.
+#
+# NOTE: workflow_run always uses the copy of this file on the DEFAULT branch.
+# Until it is merged to master it will not run at all, however the triggering
+# builds are configured.
+
+on:
+  workflow_run:
+    workflows: ["CI (Linux)", "CI (macOS)", "CI (Windows)"]
+    types: [completed]
+
+permissions:
+  # Reading the sibling workflows' conclusions. Explicit because a
+  # workflow_run-triggered job gets whatever the repository default is, and
+  # that default can be read-only for everything.
+  actions: read
+  contents: read
+
+# Each of the three build workflows wakes this up, so up to three runs exist
+# per commit. All but the last exit without dispatching, having found a sibling
+# still running. Cancelling the older ones keeps that from being three
+# simultaneous API sweeps, and narrows -- though it cannot completely close --
+# the window in which two runs both observe "all three finished" and both
+# dispatch. A duplicate dispatch costs one redundant downstream CI run and
+# nothing else, which is not worth more machinery than this.
+concurrency:
+  group: notify-downstream-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Dispatch to lispnik/im
+    runs-on: ubuntu-latest
+
+    # A failed or cancelled build has nothing worth downloading. Restricting to
+    # master keeps feature-branch pushes -- which ci-*.yml does build -- from
+    # starting downstream runs against libraries that may never merge.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master'
+
+    steps:
+      - name: Wait for the other platforms, then dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot trigger a workflow in another repository -- a
+          # deliberate GitHub restriction against dispatch loops -- so this
+          # needs a PAT or GitHub App token with permission to POST to
+          # lispnik/im. Absent, the step reports and skips.
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          DOWNSTREAM: lispnik/im
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "::notice::DISPATCH_TOKEN is not set; skipping downstream notification."
+            echo "Create a token that can write to $DOWNSTREAM and add it as the"
+            echo "DISPATCH_TOKEN secret on this repository to enable this step."
+            exit 0
+          fi
+
+          # Collect the newest run of each build workflow AT THIS COMMIT. Keyed
+          # on head_sha rather than "latest run" because several commits can be
+          # in flight at once, and pairing a Linux build of one commit with a
+          # Windows build of another is exactly the mismatch that produces an
+          # unreproducible downstream failure.
+          all_ok=1
+          payload_runs=""
+          for wf in ci-linux.yml ci-macos.yml ci-windows.yml; do
+            run_json="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${wf}/runs?head_sha=${SHA}&per_page=1" \
+              --jq '.workflow_runs[0] // empty | {id, status, conclusion}' 2>/dev/null || true)"
+
+            if [ -z "$run_json" ]; then
+              echo "$wf: no run yet for $SHA"
+              all_ok=0
+              continue
+            fi
+
+            status="$(jq -r .status <<<"$run_json")"
+            conclusion="$(jq -r .conclusion <<<"$run_json")"
+            run_id="$(jq -r .id <<<"$run_json")"
+            echo "$wf: status=$status conclusion=$conclusion run_id=$run_id"
+
+            if [ "$status" != completed ] || [ "$conclusion" != success ]; then
+              all_ok=0
+              continue
+            fi
+
+            key="${wf%.yml}"; key="${key#ci-}"
+            payload_runs="${payload_runs}\"${key}_run_id\":\"${run_id}\","
+          done
+
+          if [ "$all_ok" -ne 1 ]; then
+            echo "::notice::Not every platform has finished successfully for $SHA; not dispatching."
+            echo "Whichever platform finishes last sends the notification."
+            exit 0
+          fi
+
+          # The run ids are the point. actions/download-artifact can fetch from
+          # another repository's run, but only if told which run; without them
+          # the consumer has to guess "latest master", which races the next
+          # push and can mix platforms from different commits.
+          body="$(jq -nc \
+            --arg sha "$SHA" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --argjson runs "{${payload_runs%,}}" \
+            '{event_type: "tecgraf-im-build-complete",
+              client_payload: ($runs + {sha: $sha, repository: $repo})}')"
+          echo "Dispatching: $body"
+
+          # --fail-with-body so a 404 (bad token scope, or a repository the
+          # token cannot see) reports GitHub's explanation rather than just a
+          # non-zero exit.
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${DOWNSTREAM}/dispatches" \
+            -d "$body"
+
+          echo "::notice::Notified $DOWNSTREAM that $SHA built on all platforms."

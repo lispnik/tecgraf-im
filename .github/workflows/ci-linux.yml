@@ -25,10 +25,21 @@ jobs:
         # HEIF is per-release: 22.04 ships libheif 1.12, which predates
         # heif_brand2_avif (added in 1.16) and does not compile. The add-on is
         # optional, so that job simply builds without it.
+        #
+        # '24.04-arm' selects GitHub's arm64 Ubuntu runner: runs-on already
+        # interpolates ubuntu-${{ matrix.os }}, so the label falls out of the
+        # same string, and every apt package named below is arch-independent.
+        # It exists because downstream consumers need aarch64 Linux binaries
+        # and there was previously no job producing any -- Linux here was
+        # x86_64 only, so anything binding this library could ship amd64 and
+        # macOS but not arm64 Linux. Artifacts land under the matrix name,
+        # so this one uploads im-libs-ubuntu-24.04-arm with no collision.
         include:
           - os: '22.04'
             heif: 'OFF'
           - os: '24.04'
+            heif: 'ON'
+          - os: '24.04-arm'
             heif: 'ON'
 
     steps:
