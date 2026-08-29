@@ -13,8 +13,16 @@ name: Release
 # expire, so a downstream project can pin a version and stay pinned.
 #
 # The build steps here mirror ci-linux.yml, ci-macos.yml and ci-windows.yml.
-# Where they differ, it is deliberate and noted: this workflow installs into a
-# prefix and packages that tree, where CI only builds and uploads build/lib.
+# Where they differ, it is deliberate and noted:
+#
+#   this workflow installs into a prefix and packages that tree, where CI only
+#   builds and uploads build/lib;
+#
+#   and it builds without the Lua bindings. imlua and its four companions are
+#   linked against one Lua ABI, so they are useful only to someone already on
+#   that exact Lua and dead weight for everyone consuming IM from C or through
+#   a foreign-function binding. CI still builds and smoke-tests them, so the
+#   coverage is not lost -- they are simply not part of what ships.
 
 on:
   push:
@@ -66,7 +74,7 @@ jobs:
       # vcpkg ports, kept identical to ci-windows.yml. liblzf is absent on
       # purpose: no port exists and the CMakeLists falls back to the bundled
       # src/liblzf/ tree.
-      VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua pkgconf "libheif[core,hevc,aom]"
+      VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 pkgconf "libheif[core,hevc,aom]"
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
       VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite'
 
@@ -94,7 +102,6 @@ jobs:
             libtiff-dev libjpeg-dev libpng-dev \
             libexif-dev liblzf-dev liblz4-dev \
             libfftw3-dev libomp-dev \
-            liblua5.4-dev lua5.4 \
             libheif-dev
           # libjasper-dev was dropped from Ubuntu after 18.04 over unfixed
           # CVEs, so libim_jp2 cannot be built from system libraries here.
@@ -113,7 +120,7 @@ jobs:
           brew install --quiet \
             cmake ninja pkg-config \
             libtiff jpeg-turbo libpng libexif liblzf lz4 \
-            jasper fftw libomp lua@5.4 libheif
+            jasper fftw libomp libheif
 
       # -- Windows ----------------------------------------------------------
       - name: Activate MSVC build environment (Windows)
@@ -152,7 +159,8 @@ jobs:
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_JP2=OFF \
-            -DIM_BUILD_HEIF=${{ matrix.heif }}
+            -DIM_BUILD_HEIF=${{ matrix.heif }} \
+            -DIM_BUILD_LUA=OFF
 
       - name: Configure (macOS)
         if: matrix.platform == 'macos'
@@ -163,8 +171,7 @@ jobs:
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_HEIF=${{ matrix.heif }} \
-            -DLUA_INCLUDE_DIR=/opt/homebrew/opt/lua@5.4/include/lua5.4 \
-            -DLUA_LIBRARY=/opt/homebrew/opt/lua@5.4/lib/liblua5.4.dylib
+            -DIM_BUILD_LUA=OFF
 
       - name: Configure (Windows)
         if: matrix.platform == 'windows'
@@ -182,6 +189,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" `
             -DIM_BUILD_CAPTURE=ON `
             -DIM_BUILD_HEIF=${{ matrix.heif }} `
+            -DIM_BUILD_LUA=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DPKG_CONFIG_EXECUTABLE="$pkgconf" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
