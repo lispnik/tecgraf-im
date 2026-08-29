@@ -359,10 +359,11 @@ jobs:
           Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
           Expand-Archive -Path $zip.FullName -DestinationPath $probe
 
+          $main = "im.dll"
           $bin = Join-Path $probe "bin"
           $env:PATH = "$bin;$env:PATH"
-          $dll = Join-Path $bin "im.dll"
-          if (-not (Test-Path $dll)) { throw "$MAIN missing from $($zip.Name)" }
+          $dll = Join-Path $bin $main
+          if (-not (Test-Path $dll)) { throw "$main missing from $($zip.Name)" }
 
           # One line, not a here-string: PowerShell requires @' and '@ to start
           # at column 0, and a column-0 line ends the YAML block scalar this
@@ -372,9 +373,9 @@ jobs:
           $h = [Probe.Native]::LoadLibraryW($dll)
           if ($h -eq [IntPtr]::Zero) {
             $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            throw "LoadLibrary($MAIN) failed with Win32 error $err -- a dependency is missing from the archive"
+            throw "LoadLibrary($main) failed with Win32 error $err -- a dependency is missing from the archive"
           }
-          Write-Host "$MAIN loaded from a clean extraction of $($zip.Name)"
+          Write-Host "$main loaded from a clean extraction of $($zip.Name)"
 
       - name: Upload the packaged archive
         uses: actions/upload-artifact@v4
