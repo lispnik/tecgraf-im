@@ -31,7 +31,8 @@ cmake --build build -j
 ```
 
 `libjasper-dev` was dropped from Debian/Ubuntu after 18.04 due to
-unfixed CVEs, so the JP2 add-on is disabled with `-DIM_BUILD_JP2=OFF`
+unfixed CVEs. The JP2 add-on defaults to OFF for that reason, so nothing
+needs to be passed
 on modern Linux distros. Install jasper from source if you need it.
 
 ## Windows (vcpkg)
@@ -54,7 +55,7 @@ lookups; no other configuration is required.
 |------------------------|---------|--------------------------------------|
 | `IM_BUILD_PROCESS`     | ON      | Image processing operations          |
 | `IM_BUILD_PROCESS_OMP` | ON      | OpenMP-enabled parity build          |
-| `IM_BUILD_JP2`         | ON      | JPEG 2000 support (needs libjasper)  |
+| `IM_BUILD_JP2`         | OFF     | JPEG 2000 support (needs libjasper)  |
 | `IM_BUILD_FFTW3`       | ON      | FFTW3-backed FFT add-on              |
 | `IM_BUILD_LUA`         | ON      | Lua 5.x bindings (imlua + add-ons)   |
 | `IM_BUILD_HEIF`        | OFF     | HEIC/AVIF support (needs libheif)    |
@@ -62,7 +63,21 @@ lookups; no other configuration is required.
 | `IM_BUILD_AVI`         | OFF     | AVI driver (Windows + `vfw.h`)       |
 | `IM_BUILD_WMV`         | OFF     | WMV driver (Windows + `wmsdk.h`)     |
 
-Disable any of them with e.g. `-DIM_BUILD_JP2=OFF`.
+Disable any of them with e.g. `-DIM_BUILD_FFTW3=OFF`.
+
+## JPEG 2000, and why it is off by default
+
+The only JP2 backend here is jasper. Debian and Ubuntu dropped it after 18.04
+over unfixed CVEs, and it has been maintenance-only upstream for years, so on
+most platforms the dependency is either absent or unwelcome.
+
+It is also noisy in a way that reaches end users: `imFormatRegisterJP2` calls
+`jas_init`, which writes a deprecation notice and a memory-limit warning to
+stderr in every process that loads the driver. A consumer's command-line tool
+prints those on each invocation, having asked for nothing but a PNG.
+
+Turn it on with `-DIM_BUILD_JP2=ON` where jasper is available and wanted; the
+macOS CI job does exactly that, so the driver stays compiled and tested.
 
 ## AVI and WMV
 

@@ -19,7 +19,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j
 
 # Linux — libjasper was dropped from Debian/Ubuntu after 18.04 (unfixed CVEs)
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_JP2=OFF
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
 # Single target
@@ -27,9 +27,9 @@ cmake --build build --target im_process
 ```
 
 Dependency install commands per platform are in `BUILDING.md`. Build options:
-`IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_JP2`, `IM_BUILD_FFTW3`,
-`IM_BUILD_LUA` (all default ON), `IM_BUILD_HEIF` and `IM_BUILD_CAPTURE` (both
-default OFF, see below), `IM_BUILD_AVI` and `IM_BUILD_WMV` (default OFF,
+`IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_FFTW3` and
+`IM_BUILD_LUA` (default ON), `IM_BUILD_JP2`, `IM_BUILD_HEIF` and
+`IM_BUILD_CAPTURE` (default OFF, see below), `IM_BUILD_AVI` and `IM_BUILD_WMV` (default OFF,
 Windows-only, and each additionally gated on a `check_include_file_cxx` probe
 for `vfw.h` / `wmsdk.h` — the WMV one needs the separately-distributed Windows
 Media Format 11 SDK and is not expected to be found on CI), plus

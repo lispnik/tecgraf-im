@@ -66,9 +66,22 @@ endif()
 
 option(IM_BUILD_PROCESS     "Build libim_process (image processing add-on)"      ON)
 option(IM_BUILD_PROCESS_OMP "Build libim_process_omp (OpenMP-enabled parity build)" ON)
-option(IM_BUILD_JP2         "Build libim_jp2 (JPEG 2000 add-on via libjasper)"   ON)
 option(IM_BUILD_FFTW3       "Build libim_fftw3 (FFTW3 backend for FFT)"          ON)
 option(IM_BUILD_LUA         "Build Lua 5.x bindings (imlua, imlua_process, ...)" ON)
+
+# Default OFF. The only JPEG 2000 backend here is jasper, which Debian and
+# Ubuntu dropped after 18.04 over unfixed CVEs and which has been in
+# maintenance-only status upstream for years. It also announces itself at
+# runtime: imFormatRegisterJP2 calls jas_init, which prints a deprecation
+# notice and a memory-limit warning to stderr on every process that loads the
+# driver -- including every invocation of a consumer's command-line tool.
+#
+# Nothing else in this tree needs it, and the Linux and sanitizer jobs have
+# always passed -DIM_BUILD_JP2=OFF because the dependency is unavailable
+# there, so ON was never the configuration most builds actually used. The
+# macOS job now enables it explicitly to keep the driver compiled and its
+# tests running.
+option(IM_BUILD_JP2         "Build libim_jp2 (JPEG 2000 add-on via libjasper)"  OFF)
 
 # Default OFF, unlike the other add-ons. libheif itself is LGPL, but a build
 # with HEIC *encoding* pulls in x265, which is GPL-2.0 -- and a binary whose
