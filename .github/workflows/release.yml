@@ -201,20 +201,63 @@ jobs:
 
       # A shared object may keep undefined symbols, so a missing link flag
       # produces a library that builds green here and fails at dlopen in
-      # whatever consumes it. `ldd -r` resolves symbols as well as libraries.
-      # This is the check that caught two such faults in the sibling CD
-      # project; IM has never had one, and this is how it stays that way.
+      # whatever consumes it. `ldd -r` resolves symbols as well as libraries,
+      # which is what catches that. It caught two such faults in the sibling
+      # CD project, both of which had shipped for a long time.
+      #
+      # IM cannot use the check as bluntly as CD can, because some of these
+      # libraries are add-ons that are *meant* to have undefined symbols:
+      # libim_fftw3 and libim_heif call imImageCopy, imCounterInc and the like
+      # without linking libim, because a consumer opens libim first and with
+      # global visibility, and they resolve against it then. Failing them for
+      # that would be failing them for working as designed.
+      #
+      # So the rule is not "no undefined symbols" but "nothing undefined that
+      # libim does not export" -- which still catches a genuinely missing
+      # dependency in an add-on, rather than exempting the add-ons and
+      # checking only the core.
       - name: Check for undefined symbols (Linux)
         if: matrix.platform == 'linux'
         run: |
+          set -uo pipefail
+          core=install/lib/libim.so
+          test -f "$core" || { echo "::error::no libim.so to check against"; exit 1; }
+          core_syms="$(mktemp)"
+          nm -D --defined-only "$core" | awk '{print $NF}' | sort -u > "$core_syms"
+          echo "libim.so exports $(wc -l < "$core_syms") symbols"
+
           status=0
+          seen=""
           for lib in install/lib/libim*.so*; do
             [ -f "$lib" ] || continue
-            case "$lib" in *.so) ;; *.so.*) ;; *) continue ;; esac
-            if ldd -r "$lib" 2>&1 | grep -q "undefined symbol"; then
-              echo "::error::$lib has undefined symbols:"
-              ldd -r "$lib" 2>&1 | grep "undefined symbol" | sort -u
+            real="$(readlink -f "$lib")"
+            case " $seen " in *" $real "*) continue ;; esac
+            seen="$seen $real"
+
+            undef="$(mktemp)"
+            # awk on the third field, not a regex with [^ \t(] in it: inside a
+            # POSIX bracket expression \t is a literal backslash and the letter
+            # t, so that class would also exclude every t in a symbol name and
+            # truncate imCounterInc to imCoun.
+            ldd -r "$lib" 2>&1 \
+              | awk '/undefined symbol:/ {print $3}' | sort -u > "$undef"
+            if [ ! -s "$undef" ]; then
+              echo "$lib: clean"
+              continue
+            fi
+
+            if [ "$real" = "$(readlink -f "$core")" ]; then
+              missing="$(cat "$undef")"          # the core must resolve alone
+            else
+              missing="$(comm -23 "$undef" "$core_syms")"
+            fi
+
+            if [ -n "$missing" ]; then
+              echo "::error::$lib needs symbols that libim.so does not export:"
+              printf '  %s\n' $missing
               status=1
+            else
+              echo "$lib: resolves against libim.so ($(wc -l < "$undef") symbols)"
             fi
           done
           exit $status
