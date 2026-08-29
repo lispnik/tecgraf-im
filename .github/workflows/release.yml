@@ -1,0 +1,295 @@
+name: Release
+
+# Build IM on every supported platform from a tag, and publish the installed
+# trees as release archives.
+#
+# Release archives rather than CI artifacts, because the two have different
+# lifetimes and only one of them is a distribution channel. ci-*.yml uploads
+# with retention-days: 14, which is right for "what did this commit build
+# into" and useless for "what does a consumer link against": lispnik/cd used
+# to take its IM dependency from those artifacts and had to disable IM
+# support entirely, because a build could fail purely by being more than a
+# fortnight after the last push to this repository. Release assets do not
+# expire, so a downstream project can pin a version and stay pinned.
+#
+# The build steps here mirror ci-linux.yml, ci-macos.yml and ci-windows.yml.
+# Where they differ, it is deliberate and noted: this workflow installs into a
+# prefix and packages that tree, where CI only builds and uploads build/lib.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    strategy:
+      # One platform failing must not cancel the others: a release that is
+      # missing an architecture should still show which ones built.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux amd64
+            runner: ubuntu-24.04
+            platform: linux
+            asset: linux-amd64
+            heif: 'ON'
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+            platform: linux
+            asset: linux-arm64
+            heif: 'ON'
+          - name: macOS arm64
+            runner: macos-15
+            platform: macos
+            asset: macos-arm64
+            heif: 'ON'
+          - name: Windows x64
+            runner: windows-2022
+            platform: windows
+            asset: windows-x64
+            heif: 'ON'
+
+    env:
+      # vcpkg ports, kept identical to ci-windows.yml. liblzf is absent on
+      # purpose: no port exists and the CMakeLists falls back to the bundled
+      # src/liblzf/ tree.
+      VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua pkgconf "libheif[core,hevc,aom]"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+      VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Determine the version
+        id: version
+        shell: bash
+        run: |
+          ref="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "version=${ref}" >> "$GITHUB_OUTPUT"
+          echo "Building IM ${ref}"
+
+      # -- Linux ------------------------------------------------------------
+      - name: Install build dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libtiff-dev libjpeg-dev libpng-dev \
+            libexif-dev liblzf-dev liblz4-dev \
+            libfftw3-dev libomp-dev \
+            liblua5.4-dev lua5.4 \
+            libheif-dev
+          # libjasper-dev was dropped from Ubuntu after 18.04 over unfixed
+          # CVEs, so libim_jp2 cannot be built from system libraries here.
+
+      - name: Install libheif codec plugins (Linux)
+        if: matrix.platform == 'linux' && matrix.heif == 'ON'
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            libheif-plugin-libde265 libheif-plugin-x265 \
+            libheif-plugin-aomdec libheif-plugin-aomenc
+
+      # -- macOS ------------------------------------------------------------
+      - name: Install build dependencies (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          brew install --quiet \
+            cmake ninja pkg-config \
+            libtiff jpeg-turbo libpng libexif liblzf lz4 \
+            jasper fftw libomp lua@5.4 libheif
+
+      # -- Windows ----------------------------------------------------------
+      - name: Activate MSVC build environment (Windows)
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up vcpkg binary cache (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}" | Out-Null
+
+      - name: Restore vcpkg binary cache (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-release-windows-2022-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: vcpkg-release-windows-2022-
+
+      - name: Install vcpkg dependencies (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          & $vcpkg install --triplet x64-windows ${{ env.VCPKG_DEPS }}
+
+      # -- Configure --------------------------------------------------------
+      - name: Configure (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DIM_BUILD_CAPTURE=ON \
+            -DIM_BUILD_JP2=OFF \
+            -DIM_BUILD_HEIF=${{ matrix.heif }}
+
+      - name: Configure (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DIM_BUILD_CAPTURE=ON \
+            -DIM_BUILD_HEIF=${{ matrix.heif }} \
+            -DLUA_INCLUDE_DIR=/opt/homebrew/opt/lua@5.4/include/lua5.4 \
+            -DLUA_LIBRARY=/opt/homebrew/opt/lua@5.4/lib/liblua5.4.dylib
+
+      - name: Configure (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT "scripts/buildsystems/vcpkg.cmake"
+          # FindPkgConfig only learned to look for "pkgconf" as well as
+          # "pkg-config" in CMake 3.22 and this project declares 3.20, so name
+          # the path rather than relying on it being found.
+          $pkgconf = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows/tools/pkgconf/pkgconf.exe"
+          if (-not (Test-Path $pkgconf)) { throw "pkgconf not found at $pkgconf" }
+
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install" `
+            -DIM_BUILD_CAPTURE=ON `
+            -DIM_BUILD_HEIF=${{ matrix.heif }} `
+            -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
+            -DPKG_CONFIG_EXECUTABLE="$pkgconf" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      # -- Build, test, install ---------------------------------------------
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      # A release is a worse place than CI to discover a regression, so the
+      # same suite runs here rather than trusting that the tagged commit was
+      # the one CI last saw.
+      - name: Run test suite
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Install
+        run: cmake --install build --config Release
+
+      # A shared object may keep undefined symbols, so a missing link flag
+      # produces a library that builds green here and fails at dlopen in
+      # whatever consumes it. `ldd -r` resolves symbols as well as libraries.
+      # This is the check that caught two such faults in the sibling CD
+      # project; IM has never had one, and this is how it stays that way.
+      - name: Check for undefined symbols (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          status=0
+          for lib in install/lib/libim*.so*; do
+            [ -f "$lib" ] || continue
+            case "$lib" in *.so) ;; *.so.*) ;; *) continue ;; esac
+            if ldd -r "$lib" 2>&1 | grep -q "undefined symbol"; then
+              echo "::error::$lib has undefined symbols:"
+              ldd -r "$lib" 2>&1 | grep "undefined symbol" | sort -u
+              status=1
+            fi
+          done
+          exit $status
+
+      # -- Package ----------------------------------------------------------
+      - name: Package (Linux/macOS)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          name="tecgraf-im-${{ steps.version.outputs.version }}-${{ matrix.asset }}"
+          tar -czf "${name}.tar.gz" -C install .
+          # sha256sum on Linux, shasum on macOS -- neither is present on both.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          ls -la "${name}.tar.gz"
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $name = "tecgraf-im-${{ steps.version.outputs.version }}-${{ matrix.asset }}"
+          Compress-Archive -Path install/* -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" |
+            Out-File -Encoding ascii "$name.zip.sha256"
+          Get-ChildItem "$name.zip"
+
+      - name: Upload the packaged archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: |
+            tecgraf-im-*.tar.gz
+            tecgraf-im-*.tar.gz.sha256
+            tecgraf-im-*.zip
+            tecgraf-im-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    # Publish whatever built. A platform that failed leaves its archive out
+    # rather than withholding the release entirely, which matters when one
+    # runner image breaks and the others are fine.
+    if: always()
+
+    steps:
+      - name: Collect the archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be published
+        run: |
+          ls -la dist/
+          echo
+          cat dist/*.sha256
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          # Create the release if the tag was pushed without one. The previous
+          # release workflow in the sibling CD repository gated its upload on
+          # `github.event_name == 'release'` while also triggering on tag
+          # pushes, so a plain `git push --tags` built every platform and
+          # published nothing at all.
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
