@@ -311,6 +311,30 @@ jobs:
           fi
           ls -la "${name}.tar.gz"
 
+      # cmake --install copies what this project builds and nothing else, so
+      # the installed tree has im.dll and none of the libraries it links.
+      # vcpkg's CMake integration copies dependencies beside the *build*
+      # outputs, which is why build/lib looked complete and the install tree
+      # is not -- and why this only shows up in something that consumes the
+      # archive: LoadLibrary reports a missing dependency as a failure to open
+      # im.dll itself.
+      #
+      # Everything in vcpkg's release bin/ rather than a computed dependency
+      # set: these are exactly the ports this build asked for plus their own
+      # dependencies, the whole directory is a few megabytes, and a list
+      # derived by hand is a list that goes stale silently.
+      - name: Bundle the vcpkg runtime DLLs (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows/bin"
+          if (-not (Test-Path $vcpkgBin)) { throw "no vcpkg bin at $vcpkgBin" }
+          $dest = "${{ github.workspace }}/install/bin"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item "$vcpkgBin/*.dll" $dest -Force
+          Write-Host "bundled:"
+          Get-ChildItem $dest -Filter *.dll | ForEach-Object { "  " + $_.Name }
+
       - name: Package (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -320,6 +344,37 @@ jobs:
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" |
             Out-File -Encoding ascii "$name.zip.sha256"
           Get-ChildItem "$name.zip"
+
+      # Prove the archive is usable on its own, which is the property that
+      # just failed: an archive missing a dependency looks perfectly well
+      # formed, and LoadLibrary blames the DLL you asked for rather than the
+      # one that is absent. Extracting to a clean directory and loading it is
+      # the only check that actually answers the question.
+      - name: Verify the packaged archive loads (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "tecgraf-im-*.zip" | Select-Object -First 1
+          $probe = Join-Path $env:RUNNER_TEMP "loadprobe"
+          Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zip.FullName -DestinationPath $probe
+
+          $bin = Join-Path $probe "bin"
+          $env:PATH = "$bin;$env:PATH"
+          $dll = Join-Path $bin "im.dll"
+          if (-not (Test-Path $dll)) { throw "$MAIN missing from $($zip.Name)" }
+
+          # One line, not a here-string: PowerShell requires @' and '@ to start
+          # at column 0, and a column-0 line ends the YAML block scalar this
+          # script lives in.
+          $sig = '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string path);'
+          Add-Type -Namespace Probe -Name Native -MemberDefinition $sig
+          $h = [Probe.Native]::LoadLibraryW($dll)
+          if ($h -eq [IntPtr]::Zero) {
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "LoadLibrary($MAIN) failed with Win32 error $err -- a dependency is missing from the archive"
+          }
+          Write-Host "$MAIN loaded from a clean extraction of $($zip.Name)"
 
       - name: Upload the packaged archive
         uses: actions/upload-artifact@v4
