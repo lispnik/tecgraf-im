@@ -76,8 +76,12 @@ It is also noisy in a way that reaches end users: `imFormatRegisterJP2` calls
 stderr in every process that loads the driver. A consumer's command-line tool
 prints those on each invocation, having asked for nothing but a PNG.
 
-Turn it on with `-DIM_BUILD_JP2=ON` where jasper is available and wanted; the
-macOS CI job does exactly that, so the driver stays compiled and tested.
+Turn it on with `-DIM_BUILD_JP2=ON` where jasper is available and wanted.
+
+No CI job builds it, so `libim_jp2` appears in no published artifact and the
+driver is not exercised by CI. The format tests skip cleanly when the module
+is absent, which is what the Linux jobs -- which have never had jasper -- have
+been demonstrating all along.
 
 ## AVI and WMV
 

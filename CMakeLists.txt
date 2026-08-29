@@ -78,9 +78,12 @@ option(IM_BUILD_LUA         "Build Lua 5.x bindings (imlua, imlua_process, ...)"
 #
 # Nothing else in this tree needs it, and the Linux and sanitizer jobs have
 # always passed -DIM_BUILD_JP2=OFF because the dependency is unavailable
-# there, so ON was never the configuration most builds actually used. The
-# macOS job now enables it explicitly to keep the driver compiled and its
-# tests running.
+# there, so ON was never the configuration most builds actually used.
+#
+# No CI job builds it now, so the driver and its tests are not exercised
+# anywhere. That is the accepted cost of not shipping jasper: the format
+# tests skip cleanly when the module is absent -- which is what the Linux
+# jobs have been proving all along -- and a build that wants JP2 asks for it.
 option(IM_BUILD_JP2         "Build libim_jp2 (JPEG 2000 add-on via libjasper)"  OFF)
 
 # Default OFF, unlike the other add-ons. libheif itself is LGPL, but a build

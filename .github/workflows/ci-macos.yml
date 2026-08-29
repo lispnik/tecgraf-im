@@ -49,7 +49,6 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_HEIF=ON \
-            -DIM_BUILD_JP2=ON \
             -DLUA_INCLUDE_DIR=/opt/homebrew/opt/lua@5.4/include/lua5.4 \
             -DLUA_LIBRARY=/opt/homebrew/opt/lua@5.4/lib/liblua5.4.dylib
 
