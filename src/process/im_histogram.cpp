@@ -44,26 +44,35 @@ int imHistogramCount(int data_type)
     return 256;
 }
 
+/* shift maps a pixel value to its histogram bin: 0 for BYTE and USHORT,
+   +32768 for the signed SHORT type, matching DoCalcHisto. re_map is indexed by
+   bin (0..hcount-1), so both the threshold comparison and, critically, the
+   per-pixel lookup must add it -- indexing re_map with a raw signed short ran
+   up to 32768 elements before the array. low_level/high_level arrive as pixel
+   VALUES from imCalcPercentMinMax, so they are shifted into bins here too. */
 template <class T>
-static void DoExpandHistogram(T* src_map, T* dst_map, int size, int depth, int hcount, int low_level, int high_level)
+static void DoExpandHistogram(T* src_map, T* dst_map, int size, int depth, int hcount, int shift, int low_level, int high_level)
 {
   int i;
 
   T* re_map = new T [hcount];
   memset(re_map, 0, hcount*sizeof(T));
 
-  int range = high_level-low_level+1;
+  int low_bin = low_level + shift;
+  int high_bin = high_level + shift;
+
+  int range = high_bin-low_bin+1;
   double factor = (double)hcount / (double)range;
 
   for (i = 0; i < hcount; i++)
-  {             
-    if (i <= low_level)
+  {
+    if (i <= low_bin)
       re_map[i] = 0;
-    else if (i >= high_level)
+    else if (i >= high_bin)
       re_map[i] = (T)(hcount-1);
     else
     {
-      int value = imResampleInt(i - low_level, factor);
+      int value = imResampleInt(i - low_bin, factor);
       re_map[i] = (T)IM_CROPMAX(value, hcount-1);
     }
   }
@@ -73,7 +82,7 @@ static void DoExpandHistogram(T* src_map, T* dst_map, int size, int depth, int h
 #pragma omp parallel for if (IM_OMP_MINCOUNT(total_count))
 #endif
   for (i = 0; i < total_count; i++)
-    dst_map[i] = re_map[src_map[i]];
+    dst_map[i] = re_map[src_map[i] + shift];
 
   delete [] re_map;
 }
@@ -84,17 +93,21 @@ void imProcessExpandHistogram(const imImage* src_image, imImage* dst_image, doub
   imCalcPercentMinMax(src_image, percent, 0, &low_level, &high_level);
 
   int hcount = imHistogramCount(src_image->data_type);
+  int shift = -imHistogramShift(src_image->data_type);
 
   if (src_image->data_type == IM_USHORT)
-    DoExpandHistogram((imushort*)src_image->data[0], (imushort*)dst_image->data[0], src_image->count, src_image->depth, hcount, low_level, high_level);
+    DoExpandHistogram((imushort*)src_image->data[0], (imushort*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, low_level, high_level);
   else if (src_image->data_type == IM_SHORT)
-    DoExpandHistogram((short*)src_image->data[0], (short*)dst_image->data[0], src_image->count, src_image->depth, hcount, low_level, high_level);
+    DoExpandHistogram((short*)src_image->data[0], (short*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, low_level, high_level);
   else
-    DoExpandHistogram((imbyte*)src_image->data[0], (imbyte*)dst_image->data[0], src_image->count, src_image->depth, hcount, low_level, high_level);
+    DoExpandHistogram((imbyte*)src_image->data[0], (imbyte*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, low_level, high_level);
 }
 
+/* See DoExpandHistogram: re_map is bin-indexed, so the per-pixel lookup must
+   shift a signed SHORT value into its bin. Without it a negative pixel read
+   before re_map. */
 template <class T>
-static void DoEqualizeHistogram(T* src_map, T* dst_map, int size, int depth, int hcount, unsigned long* histo)
+static void DoEqualizeHistogram(T* src_map, T* dst_map, int size, int depth, int hcount, int shift, unsigned long* histo)
 {
   int i;
 
@@ -104,7 +117,7 @@ static void DoEqualizeHistogram(T* src_map, T* dst_map, int size, int depth, int
   double factor = (double)hcount / (double)size;
 
   for (i = 0; i < hcount; i++)
-  {             
+  {
     int value = imResampleInt(histo[i], factor); // from 0-size to 0-(hcount-1)
     re_map[i] = (T)IM_CROPMAX(value, hcount-1);
   }
@@ -114,7 +127,7 @@ static void DoEqualizeHistogram(T* src_map, T* dst_map, int size, int depth, int
 #pragma omp parallel for if (IM_OMP_MINCOUNT(total_count))
 #endif
   for (i = 0; i < total_count; i++)
-    dst_map[i] = re_map[src_map[i]];
+    dst_map[i] = re_map[src_map[i] + shift];
 
   delete [] re_map;
 }
@@ -123,6 +136,7 @@ void imProcessEqualizeHistogram(const imImage* src_image, imImage* dst_image)
 {
   int hcount;
   unsigned long* histo = imHistogramNew(src_image->data_type, &hcount);
+  int shift = -imHistogramShift(src_image->data_type);
 
   if (!imCalcHistogram(src_image, histo, 0, 1)) // cumulative
   {
@@ -131,11 +145,11 @@ void imProcessEqualizeHistogram(const imImage* src_image, imImage* dst_image)
   }
 
   if (src_image->data_type == IM_USHORT)
-    DoEqualizeHistogram((imushort*)src_image->data[0], (imushort*)dst_image->data[0], src_image->count, src_image->depth, hcount, histo);
+    DoEqualizeHistogram((imushort*)src_image->data[0], (imushort*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, histo);
   else if (src_image->data_type == IM_SHORT)
-    DoEqualizeHistogram((short*)src_image->data[0], (short*)dst_image->data[0], src_image->count, src_image->depth, hcount, histo);
+    DoEqualizeHistogram((short*)src_image->data[0], (short*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, histo);
   else
-    DoEqualizeHistogram((imbyte*)src_image->data[0], (imbyte*)dst_image->data[0], src_image->count, src_image->depth, hcount, histo);
+    DoEqualizeHistogram((imbyte*)src_image->data[0], (imbyte*)dst_image->data[0], src_image->count, src_image->depth, hcount, shift, histo);
 
   imHistogramRelease(histo);
 }
