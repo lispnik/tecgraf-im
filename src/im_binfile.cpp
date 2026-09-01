@@ -745,11 +745,12 @@ int imBinFileReadLine(imBinFile* handle, char* comment, int *size)
      many, which made the result useless as a string */
   for (;;)
   {
-    /* Both conditions end the line: an explicit error, and a zero-byte read
-       at EOF (which is not flagged as an error). Testing only the error flag
-       looped forever on a file with no trailing newline. */
+    /* Running out of input before a line terminator is a failure, not a
+       partial line -- and a zero-byte read at EOF is not flagged as an error,
+       so testing only imBinFileError() looped forever on a file with no
+       trailing newline. Both conditions return 0. */
     if (imBinFileRead(handle, &byte_value, 1, 1) == 0)
-      break;
+      return 0;
     if (imBinFileError(handle))
       return 0;
 
