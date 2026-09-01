@@ -259,9 +259,13 @@ int imFileFormatICO::ReadImageInfo(int index)
     /* reads the number of colors used */
     imBinFileRead(handle, &dword_value, 1, 4);
 
-    /* updates the palette_count based on the number of colors used */
-    if (dword_value != 0 && (int)dword_value < this->palette_count)
-      this->palette_count = dword_value;
+    /* updates the palette_count based on the number of colors used.
+       Compared unsigned: the cast to int made 0x80000000 negative, which
+       passed this "< palette_count" test and set palette_count negative, and
+       ReadPalette then read palette_count*4 as a huge unsigned size into a
+       1024-byte stack buffer. palette_count is already at most 256 here. */
+    if (dword_value != 0 && dword_value < (unsigned int)this->palette_count)
+      this->palette_count = (int)dword_value;
 
     /* jump 4 bytes (important colors) */
     imBinFileSeekOffset(handle, 4);
