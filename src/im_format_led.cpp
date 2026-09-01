@@ -130,7 +130,14 @@ int imFileFormatLED::Open(const char* file_name)
   this->pal_count = -1; // will count the first '=' that is not a color
   while (!found)
   {
-    imBinFileRead(handle, &byte_value, 1, 1);
+    /* A zero-byte read is EOF, which the system module does not flag as an
+       error -- testing only imBinFileError() spun forever on a "LED" file
+       that never contains a '('. */
+    if (imBinFileRead(handle, &byte_value, 1, 1) == 0)
+    {
+      imBinFileClose(handle);
+      return IM_ERR_ACCESS;
+    }
 
     if (byte_value == '(')
       found = 1;
@@ -143,7 +150,7 @@ int imFileFormatLED::Open(const char* file_name)
       imBinFileClose(handle);
       return IM_ERR_ACCESS;
     }
-  } 
+  }
 
   imBinFileSeekTo(handle, offset);
 
@@ -188,6 +195,12 @@ int imFileFormatLED::ReadImageInfo(int index)
 
   this->palette_count = this->pal_count;
 
+  /* pal_count is the number of '=' in the header and is otherwise unbounded;
+     the palette holds at most 256 entries, and palette_count is later used as
+     a memcpy length out of palette[256] (imFileGetPalette). */
+  if (this->palette_count < 0 || this->palette_count > 256)
+    return IM_ERR_DATA;
+
   if (ReadPalette() != IM_ERR_NONE)
     return IM_ERR_ACCESS;
 
@@ -229,6 +242,13 @@ int imFileFormatLED::ReadPalette()
     imBinFileReadInteger(handle, &r);
     imBinFileReadInteger(handle, &g);
     imBinFileReadInteger(handle, &b);
+
+    /* i is the colour's palette slot, read from the file and used here as an
+       index into palette[256]. It was unchecked: a slot of 536870912 or -1 is
+       a wild write of file-controlled bytes, ~4GB out (segfault) or before the
+       array (bus error). A slot outside the palette is a malformed file. */
+    if (i < 0 || i >= 256)
+      return IM_ERR_ACCESS;
 
     this->palette[i] = imColorEncode((unsigned char)r, (unsigned char)g, (unsigned char)b);
 
