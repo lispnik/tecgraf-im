@@ -339,7 +339,14 @@ int imFileFormatRAS::ReadImageInfo(int index)
   /* updates the pal_size based on the palette size */
   if (this->bpp <= 8 && this->map_type != RAS_NONE)
   {
+    /* dword_value is the file's maplength: unbounded, and it drives both the
+       read into ras_colors[256*3] and the write into palette[256] in
+       ReadPalette. Without this clamp a crafted maplength overflows both --
+       a stack smash on the first, an out-of-bounds heap write on the second.
+       An 8bpp image has at most 256 entries, so a larger map is malformed. */
     this->palette_count = dword_value / 3;
+    if (this->palette_count > 256)
+      return IM_ERR_DATA;
     return ReadPalette();
   }
 

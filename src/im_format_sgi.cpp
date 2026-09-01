@@ -43,14 +43,22 @@
 #define SGI_SCREEN    2
 #define SGI_COLORMAP  3
 
-template <class T> 
-static int iSGIDecodeScanLine(T *optr, const T *iptr, int width)
+template <class T>
+static int iSGIDecodeScanLine(T *optr, const T *iptr, int width, int icount)
 {
   T pixel;
   int c = 0, count;
+  const T* iend = iptr + icount;   /* one past the last readable input element */
 
   while (c < width)
   {
+    /* Every read from iptr must be inside the compressed buffer. The RLE
+       counts come from the file, so a malformed scanline can ask to read
+       well past the bytes actually present -- previously an unbounded
+       over-read of the heap. */
+    if (iptr >= iend)
+      return IM_ERR_ACCESS;
+
     pixel = *iptr++;
 
     count = pixel & 0x7f;
@@ -63,11 +71,15 @@ static int iSGIDecodeScanLine(T *optr, const T *iptr, int width)
 
     if (pixel & 0x80)
     {
+      if (iptr + count > iend)
+        return IM_ERR_ACCESS;
       while (count--)
         *optr++ = *iptr++;
     }
     else
     {
+      if (iptr >= iend)
+        return IM_ERR_ACCESS;
       pixel = *iptr++;
       while (count--)
         *optr++ = pixel;
@@ -357,6 +369,8 @@ int imFileFormatSGI::ReadImageInfo(int index)
     int tablen = this->height * depth;
     this->starttab = (unsigned int *)malloc(tablen * sizeof(int));
     this->lengthtab = (unsigned int *)malloc(tablen * sizeof(int));
+    if (!this->starttab || !this->lengthtab)
+      return IM_ERR_MEM;
 
     /* reads the compression control information */
     imBinFileRead(handle, this->starttab, tablen, 4);
@@ -533,16 +547,33 @@ int imFileFormatSGI::ReadImageData(void* data)
     else
     {
       int lin_index = lin + plane*this->height;
+
+      /* lengthtab[] is the file's per-scanline compressed size and reaches
+         here unchecked. It is both the read length into compressed_buffer
+         and, through the decoder, an input bound. line_buffer_extra is that
+         buffer's capacity; a longer length is a malformed file, not a read to
+         attempt -- doing so overflowed the heap with file-controlled bytes. */
+      unsigned int comp_len = this->lengthtab[lin_index];
+      if (comp_len > (unsigned int)this->line_buffer_extra)
+        return IM_ERR_ACCESS;
+
       imBinFileSeekTo(handle, this->starttab[lin_index]);
-      imBinFileRead(handle, compressed_buffer, this->lengthtab[lin_index] / this->bpc, this->bpc);
+      imBinFileRead(handle, compressed_buffer, comp_len / this->bpc, this->bpc);
 
       if (imBinFileError(handle))
-        return IM_ERR_ACCESS;     
+        return IM_ERR_ACCESS;
 
+      int elem_count = (int)(comp_len / this->bpc);
       if (this->bpc == 1)
-        iSGIDecodeScanLine((imbyte*)this->line_buffer, compressed_buffer, this->width);
+      {
+        if (iSGIDecodeScanLine((imbyte*)this->line_buffer, compressed_buffer, this->width, elem_count) != IM_ERR_NONE)
+          return IM_ERR_ACCESS;
+      }
       else
-        iSGIDecodeScanLine((imushort*)this->line_buffer, (imushort*)compressed_buffer, this->width);
+      {
+        if (iSGIDecodeScanLine((imushort*)this->line_buffer, (imushort*)compressed_buffer, this->width, elem_count) != IM_ERR_NONE)
+          return IM_ERR_ACCESS;
+      }
     }
 
     imFileLineBufferRead(this, data, lin, plane);

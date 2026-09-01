@@ -736,10 +736,9 @@ static int iGIFReadApplication(imBinFile* handle, imAttribTable* attrib_table)
 
 static int iGIFReadComment(imBinFile* handle, imAttribTable* attrib_table)
 {
-  unsigned char byte_value, buffer[255*100] = "", *buffer_ptr;
+  const int BUFFER_SIZE = 255*100;
+  unsigned char byte_value, buffer[255*100] = "", block[256];
   int size = 0;
-
-  buffer_ptr = &buffer[0];
 
   do
   {
@@ -752,17 +751,28 @@ static int iGIFReadComment(imBinFile* handle, imAttribTable* attrib_table)
     /* reads data */
     if (byte_value)
     {
-      imBinFileRead(handle, buffer_ptr, byte_value, 1);
+      /* Each sub-block is read into a fixed 256-byte scratch and only what
+         still fits is appended. A comment is any number of sub-blocks, so it
+         can be far larger than 'buffer'; the previous code wrote straight
+         through buffer_ptr and overran the stack once the sub-blocks passed
+         25500 bytes. The whole stream is still consumed so the caller's file
+         position stays correct; only the accumulation is bounded. */
+      imBinFileRead(handle, block, byte_value, 1);
 
-      if (buffer_ptr[byte_value-1] == 0)
+      if (imBinFileError(handle))
+        return IM_ERR_ACCESS;
+
+      int keep = byte_value;
+      if (block[byte_value-1] == 0)   /* trailing NUL marks end of content */
+        keep = byte_value-1;
+
+      if (keep > BUFFER_SIZE - size)
+        keep = BUFFER_SIZE - size;
+
+      if (keep > 0)
       {
-        size += byte_value-1;
-        buffer_ptr += byte_value-1;
-      }
-      else
-      {
-        size += byte_value;
-        buffer_ptr += byte_value;
+        memcpy(buffer + size, block, keep);
+        size += keep;
       }
     }
 

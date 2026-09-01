@@ -662,7 +662,12 @@ int imBinFileReadInteger(imBinFile* handle, int *value)
 
   while (!found)
   {
-    imBinFileRead(handle, &c, 1, 1);
+    /* A short read returns 0 without setting the error flag -- EOF is not an
+       error. Checking only imBinFileError() below therefore spun forever on a
+       truncated file, re-testing a stale 'c'. A zero-byte read is end of
+       input: stop. */
+    if (imBinFileRead(handle, &c, 1, 1) == 0)
+      return 0;
 
     /* if it's an integer, increments the number of characters read */
     if ((c >= '0' && c <= '9') || (c == '-'))
@@ -695,7 +700,10 @@ int imBinFileReadReal(imBinFile* handle, double *value)
 
   while (!found)
   {
-    imBinFileRead(handle, &c, 1, 1);
+    /* See imBinFileReadInteger: a zero-byte read is EOF, not an error, and
+       must break the loop or it spins on a truncated file. */
+    if (imBinFileRead(handle, &c, 1, 1) == 0)
+      return 0;
 
     /* if it's a floating point number, increments the number of characters read */
     if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E')
@@ -737,7 +745,11 @@ int imBinFileReadLine(imBinFile* handle, char* comment, int *size)
      many, which made the result useless as a string */
   for (;;)
   {
-    imBinFileRead(handle, &byte_value, 1, 1);
+    /* Both conditions end the line: an explicit error, and a zero-byte read
+       at EOF (which is not flagged as an error). Testing only the error flag
+       looped forever on a file with no trailing newline. */
+    if (imBinFileRead(handle, &byte_value, 1, 1) == 0)
+      break;
     if (imBinFileError(handle))
       return 0;
 
