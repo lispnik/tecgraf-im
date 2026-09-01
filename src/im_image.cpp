@@ -8,6 +8,7 @@
 #include <memory.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 
 #include "im.h"
 #include "im_image.h"
@@ -37,7 +38,23 @@ int imImagePixelOffset(int is_packed, int width, int height, int depth, int col,
 
 int imImageDataSize(int width, int height, int color_mode, int data_type)
 {
-  return width * height * imColorModeDepth(color_mode) * imDataTypeSize(data_type);
+  /* Computed in 64-bit and range-checked. width and height arrive straight
+     from image-file headers, and this product used to wrap silently in int:
+     a 65536x65536 file returned a data size of 0, the caller allocated that,
+     and the read then wrote gigabytes past it. Returning 0 for anything that
+     does not fit an int gives every caller that treats a non-positive size as
+     an error (imFileReadImageInfo, imImageInit) one place to reject it. */
+  if (width <= 0 || height <= 0)
+    return 0;
+
+  long long size = (long long)width * (long long)height *
+                   (long long)imColorModeDepth(color_mode) *
+                   (long long)imDataTypeSize(data_type);
+
+  if (size <= 0 || size > INT_MAX)
+    return 0;
+
+  return (int)size;
 }
                            
 int imImageLineCount(int width, int color_mode)
@@ -101,7 +118,16 @@ imImage* imImageInit(int width, int height, int color_mode, int data_type, void*
 {
   if (!imImageCheckFormat(color_mode, data_type))
     return NULL;
-                 
+
+  /* Rejects the dimensions that iImageInit only caught with asserts, which are
+     compiled out in a release build -- the configuration this ships in. A
+     non-positive dimension, or a width x height x depth x type product that
+     does not fit an int, would otherwise wrap into a small allocation that the
+     later full-size clear and file read overrun. imImageDataSize returns 0 for
+     exactly those. */
+  if (imImageDataSize(width, height, color_mode, data_type) <= 0)
+    return NULL;
+
   imImage* image = (imImage*)malloc(sizeof(imImage));
   image->data = 0;
     

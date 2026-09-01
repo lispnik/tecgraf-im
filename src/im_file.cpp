@@ -322,6 +322,15 @@ int imFileReadImageInfo(imFile* ifile, int index, int *width, int *height, int *
   if (!imImageCheckFormat(ifile->file_color_mode, ifile->file_data_type))
     return IM_ERR_DATA;
 
+  /* Reject dimensions no allocation can honour, before any pixel read. The
+     drivers take width and height straight from the file and mostly do not
+     bound them; imImageDataSize returns 0 for a non-positive dimension or a
+     size that overflows an int, and a caller sizing its buffer with that same
+     function would otherwise be handed a small buffer and then filled to the
+     image's true, larger extent. */
+  if (imImageDataSize(ifile->width, ifile->height, ifile->file_color_mode, ifile->file_data_type) <= 0)
+    return IM_ERR_DATA;
+
   if (imColorModeSpace(ifile->file_color_mode) == IM_BINARY)
   {
     ifile->palette_count = 2;
