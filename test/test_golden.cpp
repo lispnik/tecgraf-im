@@ -42,6 +42,7 @@
 #include <im_process.h>
 #include <im_convert.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
