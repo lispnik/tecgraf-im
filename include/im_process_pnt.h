@@ -451,6 +451,142 @@ void imProcessMergeComponents(const imImage** src_image_list, imImage* dst_image
  * \ingroup colorproc */
 void imProcessNormalizeComponents(const imImage* src_image, imImage* dst_image);
 
+/** Colour spaces the decorrelation stretch can work in.
+ * \par
+ * The stretch is done in the space named here and mapped back to RGB, which
+ * changes the result: which colours the stretch pulls apart depends on the
+ * axes it decorrelates along.
+ * \par
+ * IM_DECORR_RGB, IM_DECORR_YUV and IM_DECORR_LAB are the standard spaces.
+ * The remaining named entries carry the names DStretch (dstretch.com) uses
+ * for the custom spaces it found useful on rock art, but \b not its
+ * coefficients: those have never been published, and its algorithm page
+ * describes them only as "modifications of the YUV or LAB colorspaces". The
+ * matrices here are this library's own reading of that description, so the
+ * results resemble DStretch's rather than reproducing them. Use
+ * IM_DECORR_CUSTOM to supply a known matrix.
+ * \par
+ * They do follow the structure DStretch's own documentation describes, which is
+ * why the names are worth keeping: enhancements come in twins, one over Y'CbCr
+ * and one over L*a*b* -- YRE and LRE, YBK and LBK, YYE and LYE -- built by
+ * setting per-axis multipliers on the base space. That is what the entries below
+ * are, and what DStretch's YXX and LXX panels expose.
+ * \par
+ * Two ways to get exact DStretch behaviour rather than an approximation, neither
+ * of which needs anything from this library: its YXX/LXX panel displays the
+ * multipliers behind each named colourspace, which go straight into
+ * IM_DECORR_CUSTOM; and its Matrix button writes the final 3x3 of a completed
+ * stretch to a text file, which can be loaded into an \ref imDecorrelationTransform
+ * and handed to \ref imProcessDecorrelationApplyTransform directly.
+ * \par
+ * The four L*a*b* entries convert through a colour space that is defined over
+ * 0-1, so for IM_FLOAT and IM_DOUBLE images they require the source to be
+ * normalized to 0-1 (\ref imProcessToneGamut can do it). An unnormalized real
+ * image saturates in the conversion and comes back flat. The integer types
+ * carry their own range and need nothing.
+ * \ingroup colorproc */
+enum imDecorrelationSpace {
+  IM_DECORR_RGB,   /**< RGB, the covariance matrix. No colour-space change.                    */
+  IM_DECORR_CRGB,  /**< RGB, the correlation matrix. Bands weigh equally however dark.         */
+  IM_DECORR_YUV,   /**< ITU-R 601 Y'CbCr.                                                      */
+  IM_DECORR_LAB,   /**< CIE L*a*b*. Nonlinear, so the image makes a round trip through it.     */
+  IM_DECORR_YDS,   /**< Y'CbCr, luma damped and chroma lifted. A general enhancement.          */
+  IM_DECORR_YBR,   /**< Y'CbCr, both chroma axes lifted. Reds and blues together.              */
+  IM_DECORR_YBK,   /**< Y'CbCr, blue-yellow lifted, luma kept. Black and blue pigments.        */
+  IM_DECORR_YRE,   /**< Y'CbCr, red axis lifted hard. Reds, and little else.                   */
+  IM_DECORR_YRD,   /**< Y'CbCr, red axis lifted gently. Reds, with the rest still readable.    */
+  IM_DECORR_YYE,   /**< Y'CbCr, blue-yellow lifted, luma damped. Faint yellows.                */
+  IM_DECORR_LDS,   /**< L*a*b*, L damped and chroma lifted. A general enhancement.             */
+  IM_DECORR_LRE,   /**< L*a*b*, a* lifted hard. The L twin of IM_DECORR_YRE.                   */
+  IM_DECORR_LBK,   /**< L*a*b*, b* lifted, L kept. The L twin of IM_DECORR_YBK.                */
+  IM_DECORR_LYE,   /**< L*a*b*, b* lifted, L damped. The L twin of IM_DECORR_YYE.              */
+  IM_DECORR_CUSTOM /**< The forward 3x3 is supplied by the caller.                             */
+};
+
+/** A decorrelation stretch, computed once and applicable many times.
+ * \par
+ * Opaque in practice -- \ref imProcessDecorrelationCalcTransform fills it and
+ * \ref imProcessDecorrelationApplyTransform consumes it -- but laid out here
+ * so it can live on the stack.
+ * \ingroup colorproc */
+typedef struct _imDecorrelationTransform
+{
+  double matrix[9];  /**< Row-major 3x3. The transform, already collapsed back out of
+                          the working space.                                          */
+  double offset[3];  /**< Added after the matrix. Together these are the whole of it:
+                          out = matrix * in + offset.                                 */
+  double mean[3];    /**< The sample mean it was centred on. Informational.           */
+  double target[3];  /**< The per-band standard deviation it stretches to, in the
+                          working space. Informational.                               */
+  double stddev[3];  /**< Square roots of the covariance eigenvalues, largest first.
+                          Informational: the shape of the colour cloud it found.      */
+  int rank;          /**< How many directions were stretched, 0 to 3. Less than 3 means
+                          the colours were confined to a plane or a line.             */
+  int color_space;   /**< The \ref imDecorrelationSpace it was built for.             */
+} imDecorrelationTransform;
+
+/** Computes the decorrelation stretch of an image without applying it. \n
+ * Source image must be IM_RGB, of any data type except complex. \n
+ * \p color_space is an \ref imDecorrelationSpace. \n
+ * \p scale multiplies each band's own standard deviation, so 1 decorrelates the
+ * colours without changing how far they spread and 2 doubles that spread. Note
+ * that 1 therefore leaves a washed-out image just as washed out -- correctly, but
+ * not usefully, and that is the image this operation is usually pointed at. How
+ * far \p scale can be pushed before the result clips depends entirely on how much
+ * spread the source had: a faint, low-contrast photograph takes 6 or 8 happily
+ * where a full-contrast one clips at 2. \n
+ * \p custom_matrix is a row-major forward 3x3, used only when \p color_space is
+ * IM_DECORR_CUSTOM and ignored (may be NULL) otherwise. \n
+ * \p mask_image, when not NULL, must be IM_GRAY/IM_BINARY of IM_BYTE and the same size
+ * as the source; only the pixels where it is non-zero enter the statistics. This is how
+ * a transform is derived from one patch of an image and applied to the whole of it. \n
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.ProcessDecorrelationCalcTransform(src_image: imImage, color_space: number, scale: number, [custom_matrix: table of number], [mask_image: imImage]) -> counter: boolean, transform: table [in Lua 5] \endverbatim
+ * \ingroup colorproc */
+int imProcessDecorrelationCalcTransform(const imImage* src_image, int color_space, double scale,
+                                        const double* custom_matrix, const imImage* mask_image,
+                                        imDecorrelationTransform* transform);
+
+/** Applies a transform from \ref imProcessDecorrelationCalcTransform. \n
+ * Images must be IM_RGB, of the same size and data type, any type except complex. \n
+ * Can be done in-place. Alpha is not changed if present. \n
+ * Integer results are clipped to the data type's range. \n
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.ProcessDecorrelationApplyTransform(src_image: imImage, dst_image: imImage, transform: table) -> counter: boolean [in Lua 5] \endverbatim
+ * \ingroup colorproc */
+int imProcessDecorrelationApplyTransform(const imImage* src_image, imImage* dst_image,
+                                         const imDecorrelationTransform* transform);
+
+/** Performs a decorrelation stretch, the enhancement DStretch is built on. \n
+ * Colours that lie along a single axis in the source -- faded pigment against rock,
+ * which is what the technique was made for -- are spread over the whole gamut, so
+ * differences too small to see become plain. \n
+ * Equivalent to \ref imProcessDecorrelationCalcTransform over the whole image followed
+ * by \ref imProcessDecorrelationApplyTransform. \n
+ * Images must be IM_RGB, of the same size and data type, any type except complex. \n
+ * Can be done in-place. Alpha is not changed if present. \n
+ * A band with no variance is left alone rather than amplified, so a flat image is
+ * returned unchanged. \n
+ * \p color_space cannot be IM_DECORR_CUSTOM here, there being nowhere to pass the
+ * matrix; use \ref imProcessDecorrelationCalcTransform and
+ * \ref imProcessDecorrelationApplyTransform for that. \n
+ * IM_FLOAT and IM_DOUBLE sources must be normalized to 0-1 when \p color_space is
+ * one of the L*a*b* ones. See \ref imDecorrelationSpace. \n
+ * To stretch hard without losing what falls outside the range, work in IM_FLOAT
+ * and put the result back in gamut afterwards rather than clipping it: real
+ * destinations are not clipped, so
+ * \ref imProcessToneGamut with IM_GAMUT_NORMALIZE followed by
+ * \ref imProcessUnNormalize keeps the whole of a large \p scale. \n
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.ProcessDecorrelationStretch(src_image: imImage, dst_image: imImage, color_space: number, scale: number) -> counter: boolean [in Lua 5] \endverbatim
+ * \verbatim im.ProcessDecorrelationStretchNew(src_image: imImage, color_space: number, scale: number) -> counter: boolean, new_image: imImage [in Lua 5] \endverbatim
+ * \ingroup colorproc */
+int imProcessDecorrelationStretch(const imImage* src_image, imImage* dst_image,
+                                  int color_space, double scale);
+
 /** Replaces the source color by the target color. \n
  * The color will be type casted to the image data type. \n
  * The colors must have the same number of components of the images. \n

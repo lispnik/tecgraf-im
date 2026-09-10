@@ -2602,6 +2602,157 @@ static int imluaProcessNormalizeComponents (lua_State *L)
   return 0;
 }
 
+/*****************************************************************************\
+ im.ProcessDecorrelationCalcTransform
+\*****************************************************************************/
+
+/* The transform crosses as a table of named fields, the way imlua_pushStats
+   does it for imStats. Arrays are 1-based on both the push and the pull --
+   imlua_toarraydoubleopt adjusts its count when start is 0, so mixing the two
+   bases silently yields the wrong length rather than an error. */
+static void imlua_pushDecorrelationTransform(lua_State *L, const imDecorrelationTransform *transform)
+{
+  lua_newtable(L);
+  lua_pushstring(L, "matrix");      imlua_newarraydouble(L, transform->matrix, 9, 1); lua_rawset(L, -3);
+  lua_pushstring(L, "offset");      imlua_newarraydouble(L, transform->offset, 3, 1); lua_rawset(L, -3);
+  lua_pushstring(L, "mean");        imlua_newarraydouble(L, transform->mean, 3, 1);   lua_rawset(L, -3);
+  lua_pushstring(L, "target");      imlua_newarraydouble(L, transform->target, 3, 1); lua_rawset(L, -3);
+  lua_pushstring(L, "stddev");      imlua_newarraydouble(L, transform->stddev, 3, 1); lua_rawset(L, -3);
+  lua_pushstring(L, "rank");        lua_pushnumber(L, transform->rank);               lua_rawset(L, -3);
+  lua_pushstring(L, "color_space"); lua_pushnumber(L, transform->color_space);        lua_rawset(L, -3);
+}
+
+/* Reads one back. Raises an argument error if a field is missing or is the
+   wrong length, so a table that did not come from the push above cannot be
+   applied as if it had. */
+static void imlua_toDecorrelationTransform(lua_State *L, int index, imDecorrelationTransform *transform)
+{
+  static const char* const names[5] = { "matrix", "offset", "mean", "target", "stddev" };
+  static const int counts[5] = { 9, 3, 3, 3, 3 };
+  double* target[5];
+  int f;
+
+  luaL_checktype(L, index, LUA_TTABLE);
+  memset(transform, 0, sizeof(imDecorrelationTransform));
+
+  target[0] = transform->matrix;
+  target[1] = transform->offset;
+  target[2] = transform->mean;
+  target[3] = transform->target;
+  target[4] = transform->stddev;
+
+  for (f = 0; f < 5; f++)
+  {
+    int count = 0;
+    double *value;
+
+    lua_getfield(L, index, names[f]);
+    if (!lua_istable(L, -1))
+    {
+      /* checked here rather than left to imlua_toarraydouble, which would be
+         handed the relative index -1 and report "bad argument #-1" */
+      lua_pop(L, 1);
+      luaL_argerror(L, index, "invalid decorrelation transform table");
+      return;
+    }
+    value = imlua_toarraydouble(L, -1, &count, 1);
+    lua_pop(L, 1);
+
+    if (count != counts[f])
+    {
+      if (value) free(value);
+      luaL_argerror(L, index, "invalid decorrelation transform table");
+      return;
+    }
+
+    memcpy(target[f], value, count*sizeof(double));
+    free(value);
+  }
+
+  lua_getfield(L, index, "rank");
+  transform->rank = (int)luaL_optnumber(L, -1, 3);
+  lua_pop(L, 1);
+
+  lua_getfield(L, index, "color_space");
+  transform->color_space = (int)luaL_optnumber(L, -1, IM_DECORR_RGB);
+  lua_pop(L, 1);
+}
+
+static int imluaProcessDecorrelationCalcTransform (lua_State *L)
+{
+  imDecorrelationTransform transform;
+  imImage *src_image = imlua_checkimage(L, 1);
+  int color_space = (int)luaL_checknumber(L, 2);
+  double scale = (double)luaL_optnumber(L, 3, 1.0);
+  double *custom_matrix = NULL;
+  imImage *mask_image = NULL;
+  int custom_count = 0, ret;
+
+  imlua_checknotcomplex(L, 1, src_image);
+
+  /* minimize leak when error, checking the array after the other checks */
+  if (!lua_isnoneornil(L, 5))
+  {
+    mask_image = imlua_checkimage(L, 5);
+    imlua_matchsize(L, src_image, mask_image);
+  }
+
+  if (!lua_isnoneornil(L, 4))
+  {
+    custom_matrix = imlua_toarraydouble(L, 4, &custom_count, 1);
+    if (custom_count != 9)
+    {
+      free(custom_matrix);
+      luaL_argerror(L, 4, "the custom matrix must have 9 elements");
+      return 0;
+    }
+  }
+
+  ret = imProcessDecorrelationCalcTransform(src_image, color_space, scale,
+                                            custom_matrix, mask_image, &transform);
+  if (custom_matrix)
+    free(custom_matrix);
+
+  lua_pushboolean(L, ret);
+  imlua_pushDecorrelationTransform(L, &transform);
+  return 2;
+}
+
+/*****************************************************************************\
+ im.ProcessDecorrelationApplyTransform
+\*****************************************************************************/
+static int imluaProcessDecorrelationApplyTransform (lua_State *L)
+{
+  imDecorrelationTransform transform;
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+
+  imlua_checknotcomplex(L, 1, src_image);
+  imlua_match(L, src_image, dst_image);
+
+  imlua_toDecorrelationTransform(L, 3, &transform);
+
+  lua_pushboolean(L, imProcessDecorrelationApplyTransform(src_image, dst_image, &transform));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessDecorrelationStretch
+\*****************************************************************************/
+static int imluaProcessDecorrelationStretch (lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+  int color_space = (int)luaL_checknumber(L, 3);
+  double scale = (double)luaL_optnumber(L, 4, 1.0);
+
+  imlua_checknotcomplex(L, 1, src_image);
+  imlua_match(L, src_image, dst_image);
+
+  lua_pushboolean(L, imProcessDecorrelationStretch(src_image, dst_image, color_space, scale));
+  return 1;
+}
+
 static int imluaProcessPseudoColor(lua_State *L)
 {
   imImage *src_image = imlua_checkimage(L, 1);
@@ -3913,6 +4064,9 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessNormalizeComponents", imluaProcessNormalizeComponents},
   {"ProcessReplaceColor", imluaProcessReplaceColor},
   {"ProcessSetAlphaColor", imluaProcessSetAlphaColor},
+  {"ProcessDecorrelationCalcTransform", imluaProcessDecorrelationCalcTransform },
+  {"ProcessDecorrelationApplyTransform", imluaProcessDecorrelationApplyTransform },
+  {"ProcessDecorrelationStretch", imluaProcessDecorrelationStretch },
   {"ProcessPseudoColor", imluaProcessPseudoColor },
   {"ProcessFixBGR", imluaProcessFixBGR },
   {"ProcessSelectHue", imluaProcessSelectHue },
@@ -4039,6 +4193,22 @@ static const imlua_constant im_process_constants[] = {
   { "GAMUT_CROP", IM_GAMUT_CROP, NULL },
   { "GAMUT_BRIGHTCONT", IM_GAMUT_BRIGHTCONT, NULL },
   { "GAMUT_MINMAX", IM_GAMUT_MINMAX, NULL },
+
+  { "DECORR_RGB", IM_DECORR_RGB, NULL },
+  { "DECORR_CRGB", IM_DECORR_CRGB, NULL },
+  { "DECORR_YUV", IM_DECORR_YUV, NULL },
+  { "DECORR_LAB", IM_DECORR_LAB, NULL },
+  { "DECORR_YDS", IM_DECORR_YDS, NULL },
+  { "DECORR_YBR", IM_DECORR_YBR, NULL },
+  { "DECORR_YBK", IM_DECORR_YBK, NULL },
+  { "DECORR_YRE", IM_DECORR_YRE, NULL },
+  { "DECORR_YRD", IM_DECORR_YRD, NULL },
+  { "DECORR_YYE", IM_DECORR_YYE, NULL },
+  { "DECORR_LDS", IM_DECORR_LDS, NULL },
+  { "DECORR_LRE", IM_DECORR_LRE, NULL },
+  { "DECORR_LBK", IM_DECORR_LBK, NULL },
+  { "DECORR_LYE", IM_DECORR_LYE, NULL },
+  { "DECORR_CUSTOM", IM_DECORR_CUSTOM, NULL },
 
   { NULL, -1, NULL },
 };

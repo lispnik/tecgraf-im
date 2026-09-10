@@ -221,6 +221,7 @@ TEST_CASE("golden: the fixtures survived checkout without EOL conversion")
     "median3.pgm", "median5.pgm", "median7.pgm", "mean3.pgm",
     "conv_asym3.pgm", "gauss5.pgm", "resize_near2x.pgm", "otsu.pgm",
     "rgb2gray601.pgm", "rgb2ycbcr.ppm", "rgb2xyz.ppm", "rgb2lab.ppm",
+    "src_dstretch.ppm", "dstretch_rgb.ppm", "dstretch_yuv.ppm",
   };
 
   for (size_t i = 0; i < sizeof(fixtures)/sizeof(fixtures[0]); i++)
@@ -979,6 +980,79 @@ TEST_CASE("golden: RGB to CIE L*a*b* matches once the encoding is accounted for"
       CHECK(worst <= 2.0);
     }
   }
+
+  imImageDestroy(src);
+  imImageDestroy(dst);
+  imImageDestroy(want);
+}
+
+
+/* ====== Decorrelation stretch ======
+ *
+ * These references come from numpy on LAPACK, not from ImageMagick, which has
+ * no decorrelation stretch -- see regenerate_dstretch.sh beside the fixtures
+ * for why a hand-written reference is a real check here and not the same code
+ * twice. The short version: the transform is diag(target) . Sigma^(-1/2), and
+ * Sigma^(-1/2) depends on the covariance alone, so LAPACK's divide-and-conquer
+ * and the cyclic Jacobi in im_decorrelate.cpp can pick completely different
+ * eigenvectors and still have to agree.
+ *
+ * Tolerance is one level, the same as the colour-conversion cases above and
+ * for the same reason: two implementations rounding a double to a byte. The
+ * mean-difference assertion is the one that matters. A half-level systematic
+ * bias -- the signature of truncating where the reference rounds -- hides
+ * comfortably inside a +/-1 band on every sample while being quite wrong, so
+ * the band alone would not catch it. */
+
+TEST_CASE("golden: the decorrelation stretch matches an independent implementation")
+{
+  imImage* src = load_golden("src_dstretch.ppm");
+  imImage* dst = imImageCreateBased(src, -1, -1, -1, -1);
+  REQUIRE(dst != NULL);
+
+  int space;
+  const char* name;
+
+  SUBCASE("in RGB")
+  {
+    space = IM_DECORR_RGB;
+    name = "dstretch_rgb.ppm";
+  }
+  SUBCASE("in Y'CbCr")
+  {
+    space = IM_DECORR_YUV;
+    name = "dstretch_yuv.ppm";
+  }
+
+  REQUIRE(imProcessDecorrelationStretch(src, dst, space, 1.0) != 0);
+
+  imImage* want = load_golden(name);
+  REQUIRE(want->width == dst->width);
+  REQUIRE(want->height == dst->height);
+
+  for (int p = 0; p < 3; p++)
+  {
+    CAPTURE(p);
+    CHECK(worst_plane_difference(dst, want, p) <= 1);
+  }
+
+  double total = 0;
+  int count = 0;
+  for (int p = 0; p < 3; p++)
+  {
+    for (int i = 0; i < dst->count; i++)
+    {
+      total += (double)((imbyte**)dst->data)[p][i] -
+               (double)((imbyte**)want->data)[p][i];
+      count++;
+    }
+  }
+
+  report_worst(dst, want, 0, "decorrelation stretch");
+  CHECK(fabs(total/count) < 0.05);
+
+  /* and it is not quietly returning its input */
+  check_actually_filtered(dst, src);
 
   imImageDestroy(src);
   imImageDestroy(dst);

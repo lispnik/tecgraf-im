@@ -2552,6 +2552,54 @@ TEST_CASE("plus: the colour wrappers forward to their C functions")
 {
   Pair rgb(IM_RGB, IM_BYTE);
 
+  SUBCASE("DecorrelationStretch")
+  {
+    DstPair dst(IM_RGB, IM_BYTE);
+    CHECK(im::Process::DecorrelationStretch(rgb.plus, dst.plus, IM_DECORR_YRE, 1.5) != 0);
+    CHECK(imProcessDecorrelationStretch(rgb.c, dst.c, IM_DECORR_YRE, 1.5) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("DecorrelationCalcTransform and DecorrelationApplyTransform")
+  {
+    /* The mask is the one optional argument in this file, so the wrapper takes
+       a pointer where everything around it takes a reference. Exercise both a
+       null mask and a real one, since only the null case would compile if the
+       parameter were forwarded as a dangling handle. */
+    imDecorrelationTransform plus_transform, c_transform;
+
+    CHECK(im::Process::DecorrelationCalcTransform(rgb.plus, IM_DECORR_LDS, 1.0, 0, 0,
+                                                  &plus_transform) != 0);
+    CHECK(imProcessDecorrelationCalcTransform(rgb.c, IM_DECORR_LDS, 1.0, 0, 0,
+                                              &c_transform) != 0);
+    CHECK(memcmp(&plus_transform, &c_transform, sizeof(imDecorrelationTransform)) == 0);
+
+    /* and again with a real mask, which is the case the pointer parameter
+       exists for -- a null one would still compile if the wrapper forwarded a
+       handle taken from a dangling reference. */
+    Pair mask(IM_BINARY, IM_BYTE);
+    memset(mask.c->data[0], 0, (size_t)mask.c->count);
+    memset(mask.plus.GetHandle()->data[0], 0, (size_t)mask.c->count);
+    for (int i = 0; i < mask.c->count/2; i++)
+    {
+      ((imbyte*)mask.c->data[0])[i] = 1;
+      ((imbyte*)mask.plus.GetHandle()->data[0])[i] = 1;
+    }
+
+    imDecorrelationTransform plus_masked, c_masked;
+    CHECK(im::Process::DecorrelationCalcTransform(rgb.plus, IM_DECORR_LDS, 1.0, 0,
+                                                  &mask.plus, &plus_masked) != 0);
+    CHECK(imProcessDecorrelationCalcTransform(rgb.c, IM_DECORR_LDS, 1.0, 0, mask.c,
+                                              &c_masked) != 0);
+    CHECK(memcmp(&plus_masked, &c_masked, sizeof(imDecorrelationTransform)) == 0);
+    CHECK(memcmp(&plus_masked, &plus_transform, sizeof(imDecorrelationTransform)) != 0);
+
+    DstPair dst(IM_RGB, IM_BYTE);
+    CHECK(im::Process::DecorrelationApplyTransform(rgb.plus, dst.plus, &plus_transform) != 0);
+    CHECK(imProcessDecorrelationApplyTransform(rgb.c, dst.c, &c_transform) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
   SUBCASE("SelectHue")
   {
     DstPair dst(IM_RGB, IM_BYTE);

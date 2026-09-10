@@ -1059,6 +1059,19 @@ namespace im
     }
     inline void NormalizeComponents(const Image& src_image, Image& dst_image) {
       imProcessNormalizeComponents(src_image.GetHandle(), dst_image.GetHandle()); }
+    inline int DecorrelationStretch(const Image& src_image, Image& dst_image, int color_space, double scale) {
+      return imProcessDecorrelationStretch(src_image.GetHandle(), dst_image.GetHandle(), color_space, scale); }
+    /* The mask is a pointer rather than a reference because it is optional and
+       a reference cannot be null; the rest of this file takes references. */
+    inline int DecorrelationCalcTransform(const Image& src_image, int color_space, double scale,
+                                          const double* custom_matrix, const Image* mask_image,
+                                          imDecorrelationTransform* transform) {
+      return imProcessDecorrelationCalcTransform(src_image.GetHandle(), color_space, scale,
+                                                 custom_matrix,
+                                                 mask_image? mask_image->GetHandle(): 0, transform); }
+    inline int DecorrelationApplyTransform(const Image& src_image, Image& dst_image,
+                                           const imDecorrelationTransform* transform) {
+      return imProcessDecorrelationApplyTransform(src_image.GetHandle(), dst_image.GetHandle(), transform); }
     inline void PseudoColor(const Image& src_image, Image& dst_image) {
       imProcessPseudoColor(src_image.GetHandle(), dst_image.GetHandle()); }
     inline void FixBGR(const Image& src_image, Image& dst_image) {

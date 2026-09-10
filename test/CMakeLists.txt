@@ -65,7 +65,7 @@ endif()
 if(TARGET im_process)
     target_sources(im_tests PRIVATE test_process.cpp test_process2.cpp
                                    test_plus.cpp test_golden.cpp
-                                   test_transform.cpp)
+                                   test_transform.cpp test_decorrelate.cpp)
     target_link_libraries(im_tests PRIVATE im_process)
 endif()
 
