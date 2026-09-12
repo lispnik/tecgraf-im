@@ -289,6 +289,83 @@ int imProcessRemoveByArea(const imImage* src_image, imImage* dst_image, int conn
 int imProcessFillHoles(const imImage* src_image, imImage* dst_image, int connect);
 
 
+/** Measure the bounding box of all regions. \n
+ * Source image is IM_GRAY/IM_USHORT type (the result of \ref imAnalyzeFindRegions). \n
+ * xmin, xmax, ymin and ymax have size the number of regions; any of them may be
+ * NULL and will then not be calculated. The box is inclusive, so its width is
+ * xmax-xmin+1. \n
+ * A label that does not occur in the image reports xmin=ymin=0 and
+ * xmax=ymax=-1, an empty box, rather than a box of negative width.
+ * Not using OpenMP when enabled.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.AnalyzeMeasureBoundingBox(image: imImage, [region_count: number]) -> counter: boolean, xmin: table of numbers, xmax: table of numbers, ymin: table of numbers, ymax: table of numbers [in Lua 5] \endverbatim
+ * The returned tables are zero indexed.
+ * \ingroup analyze */
+int imAnalyzeMeasureBoundingBox(const imImage* image, int region_count, int* xmin, int* xmax, int* ymin, int* ymax);
+
+/** Measure the area and perimeter of the convex hull of all regions. \n
+ * Source image is IM_GRAY/IM_USHORT type (the result of \ref imAnalyzeFindRegions). \n
+ * hull_area and hull_perim have size the number of regions; either may be NULL
+ * and will then not be calculated. \n
+ * Solidity, the usual measure of how concave a region is, is the region's own
+ * area from \ref imAnalyzeMeasureArea divided by hull_area. Convexity is
+ * hull_perim divided by the perimeter from \ref imAnalyzeMeasurePerimeter.
+ * Neither is computed here because both are one division on numbers the caller
+ * already has. \n
+ * A region of fewer than three non-collinear pixels has a degenerate hull and
+ * reports zero area.
+ * Not using OpenMP when enabled.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.AnalyzeMeasureConvexHull(image: imImage, [region_count: number]) -> counter: boolean, hull_area: table of numbers, hull_perim: table of numbers [in Lua 5] \endverbatim
+ * The returned tables are zero indexed.
+ * \ingroup analyze */
+int imAnalyzeMeasureConvexHull(const imImage* image, int region_count, double* hull_area, double* hull_perim);
+
+/** Measure the Feret diameters of all regions. \n
+ * Source image is IM_GRAY/IM_USHORT type (the result of \ref imAnalyzeFindRegions). \n
+ * All four arrays have size the number of regions and any may be NULL. \n
+ * max_feret is the largest distance between any two points of the region -- its
+ * caliper length. min_feret is the smallest width over all directions, which is
+ * NOT the shortest distance between two hull points: that is usually the length
+ * of one short hull edge and says nothing about the shape's width. \n
+ * The angles are in degrees in [0,180), measured anticlockwise from the x axis.
+ * A diameter has no direction, so the range is half a turn, not a whole one. \n
+ * These differ from \ref imAnalyzeMeasurePrincipalAxis: the principal axes are
+ * moments of the filled region and are pulled by where the mass sits, while
+ * Feret diameters are extents of the outline and are decided by the two or
+ * three pixels furthest apart.
+ * Not using OpenMP when enabled.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.AnalyzeMeasureFeret(image: imImage, [region_count: number]) -> counter: boolean, max_feret: table of numbers, max_angle: table of numbers, min_feret: table of numbers, min_angle: table of numbers [in Lua 5] \endverbatim
+ * The returned tables are zero indexed.
+ * \ingroup analyze */
+int imAnalyzeMeasureFeret(const imImage* image, int region_count, double* max_feret, double* max_angle, double* min_feret, double* min_angle);
+
+/** Measure the statistics of a second image under each region. \n
+ * label_image is IM_GRAY/IM_USHORT type (the result of \ref imAnalyzeFindRegions);
+ * image is any real data type of the same width and height, and plane selects
+ * which of its planes to measure. \n
+ * min_value, max_value, mean, stddev and sum_value have size the number of
+ * regions and any may be NULL. stddev divides by n-1, matching
+ * \ref imCalcImageStatistics. A region of one pixel reports a stddev of 0, and
+ * a region with no pixels reports zeros throughout. \n
+ * Every other measurement in this header reads the label image alone and so can
+ * only describe a region's shape. This is the one that answers how bright it
+ * is -- the measurement itself, in most of the fields that count objects.
+ * sum_value is the integrated density.
+ * Not using OpenMP when enabled.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.AnalyzeMeasureIntensity(label_image: imImage, image: imImage, plane: number, [region_count: number]) -> counter: boolean, min: table of numbers, max: table of numbers, mean: table of numbers, stddev: table of numbers, sum: table of numbers [in Lua 5] \endverbatim
+ * The returned tables are zero indexed.
+ * \ingroup analyze */
+int imAnalyzeMeasureIntensity(const imImage* label_image, const imImage* image, int plane, int region_count,
+                              double* min_value, double* max_value, double* mean, double* stddev, double* sum_value);
+
+
 #if defined(__cplusplus)
 }
 #endif

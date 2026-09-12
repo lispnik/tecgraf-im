@@ -74,6 +74,85 @@ for i = 3, #arg do
 
     rgb:Destroy()
     dst:Destroy()
+
+    -- The watershed, the edge-preserving filters and the deconvolution, each
+    -- reached through the "New" wrapper in im_process.lua, because that is
+    -- the half of the binding a C test cannot cover: the wrappers decide
+    -- which source image the destination is built from, and getting that
+    -- wrong is invisible until a caller passes two images of different sizes.
+    assert(im.DIFFUSION_TUKEY ~= nil, "the DIFFUSION_* constants were not registered")
+
+    -- Two touching discs, the case imProcessWatershedSegment exists for.
+    local binary = im.ImageCreate(40, 24, im.BINARY, im.BYTE)
+    for y = 0, 23 do
+      for x = 0, 39 do
+        local d1 = (x - 15)^2 + (y - 12)^2
+        local d2 = (x - 25)^2 + (y - 12)^2
+        binary[0][y][x] = (d1 <= 49 or d2 <= 49) and 1 or 0
+      end
+    end
+
+    local ok3, regions, split = im.ProcessWatershedSegmentNew(binary, 8, true)
+    assert(ok3, "the watershed segmentation reported failure")
+    assert(regions == 2, "the watershed found " .. tostring(regions) .. " regions, not 2")
+    assert(split:Width() == 40, "the new image came back the wrong size")
+
+    -- And the shape measurements over the labels it produced.
+    -- Zero indexed, like every other measurement table in this binding, so
+    -- the two regions are at [0] and [1] and #t is 1 rather than 2.
+    local okb, xmin, xmax, ymin, ymax = im.AnalyzeMeasureBoundingBox(split, regions)
+    assert(okb, "MeasureBoundingBox reported failure")
+    for r = 0, regions - 1 do
+      assert(xmin[r] and xmax[r] and ymin[r] and ymax[r],
+             "MeasureBoundingBox left region " .. r .. " unfilled")
+      assert(xmax[r] >= xmin[r] and ymax[r] >= ymin[r],
+             "MeasureBoundingBox returned an inverted box")
+    end
+
+    local okf, max_feret = im.AnalyzeMeasureFeret(split, regions)
+    assert(okf, "MeasureFeret reported failure")
+    assert(max_feret[0] > 0, "MeasureFeret returned a zero diameter")
+
+    local okh, hull_area = im.AnalyzeMeasureConvexHull(split, regions)
+    assert(okh, "MeasureConvexHull reported failure")
+    assert(hull_area[0] > 0, "MeasureConvexHull returned a zero area")
+
+    local gray = im.ImageCreate(40, 24, im.GRAY, im.BYTE)
+    for y = 0, 23 do
+      for x = 0, 39 do gray[0][y][x] = 100 end
+    end
+
+    local oki, _, _, mean = im.AnalyzeMeasureIntensity(split, gray, 0, regions)
+    assert(oki, "MeasureIntensity reported failure")
+    assert(math.abs(mean[0] - 100) < 0.001, "MeasureIntensity got the wrong mean")
+
+    -- The filters, on the gray image.
+    local okbf, filtered = im.ProcessBilateralFilterNew(gray, 1.5, 20.0)
+    assert(okbf, "the bilateral filter reported failure")
+    local okad = im.ProcessAnisotropicDiffusionNew(gray, 0.2, 20.0, 3, im.DIFFUSION_EXPONENTIAL)
+    assert(okad, "anisotropic diffusion reported failure")
+    local oknl = im.ProcessNonLocalMeansNew(gray, 2, 1, 20.0)
+    assert(oknl, "non-local means reported failure")
+
+    -- Deconvolution. The PSF is the second source and a different size from
+    -- the image, so a wrapper that built the destination from it would make
+    -- a 3x3 result -- which is exactly what this checks.
+    local psf = im.ImageCreate(3, 3, im.GRAY, im.BYTE)
+    for y = 0, 2 do
+      for x = 0, 2 do psf[0][y][x] = (x == 1 and y == 1) and 1 or 0 end
+    end
+
+    local okrl, restored = im.ProcessRichardsonLucyNew(gray, psf, 3)
+    assert(okrl, "Richardson-Lucy reported failure")
+    assert(restored:Width() == 40 and restored:Height() == 24,
+           "Richardson-Lucy built its destination from the PSF, not the image")
+
+    binary:Destroy()
+    split:Destroy()
+    gray:Destroy()
+    filtered:Destroy()
+    psf:Destroy()
+    restored:Destroy()
   end
 
   print(name .. " ok")

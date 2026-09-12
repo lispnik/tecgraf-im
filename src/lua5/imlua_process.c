@@ -368,6 +368,145 @@ static int imluaAnalyzeMeasureArea (lua_State *L)
 }
 
 /*****************************************************************************\
+ im.AnalyzeMeasureBoundingBox(image, [region_count])
+\*****************************************************************************/
+static int imluaAnalyzeMeasureBoundingBox (lua_State *L)
+{
+  int count;
+  int *xmin, *xmax, *ymin, *ymax;
+
+  imImage* image = imlua_checkimage(L, 1);
+
+  imlua_checktype(L, 1, image, IM_GRAY, IM_USHORT);
+
+  count = imlua_checkregioncount(L, 2, image);
+
+  xmin = (int*) malloc(sizeof(int) * count);
+  xmax = (int*) malloc(sizeof(int) * count);
+  ymin = (int*) malloc(sizeof(int) * count);
+  ymax = (int*) malloc(sizeof(int) * count);
+
+  lua_pushboolean(L, imAnalyzeMeasureBoundingBox(image, count, xmin, xmax, ymin, ymax));
+
+  imlua_newarrayint(L, xmin, count, 0);
+  imlua_newarrayint(L, xmax, count, 0);
+  imlua_newarrayint(L, ymin, count, 0);
+  imlua_newarrayint(L, ymax, count, 0);
+
+  free(xmin);
+  free(xmax);
+  free(ymin);
+  free(ymax);
+
+  return 5;
+}
+
+/*****************************************************************************\
+ im.AnalyzeMeasureConvexHull(image, [region_count])
+\*****************************************************************************/
+static int imluaAnalyzeMeasureConvexHull (lua_State *L)
+{
+  int count;
+  double *hull_area, *hull_perim;
+
+  imImage* image = imlua_checkimage(L, 1);
+
+  imlua_checktype(L, 1, image, IM_GRAY, IM_USHORT);
+
+  count = imlua_checkregioncount(L, 2, image);
+
+  hull_area = (double*) malloc(sizeof(double) * count);
+  hull_perim = (double*) malloc(sizeof(double) * count);
+
+  lua_pushboolean(L, imAnalyzeMeasureConvexHull(image, count, hull_area, hull_perim));
+
+  imlua_newarraydouble(L, hull_area, count, 0);
+  imlua_newarraydouble(L, hull_perim, count, 0);
+
+  free(hull_area);
+  free(hull_perim);
+
+  return 3;
+}
+
+/*****************************************************************************\
+ im.AnalyzeMeasureFeret(image, [region_count])
+\*****************************************************************************/
+static int imluaAnalyzeMeasureFeret (lua_State *L)
+{
+  int count;
+  double *max_feret, *max_angle, *min_feret, *min_angle;
+
+  imImage* image = imlua_checkimage(L, 1);
+
+  imlua_checktype(L, 1, image, IM_GRAY, IM_USHORT);
+
+  count = imlua_checkregioncount(L, 2, image);
+
+  max_feret = (double*) malloc(sizeof(double) * count);
+  max_angle = (double*) malloc(sizeof(double) * count);
+  min_feret = (double*) malloc(sizeof(double) * count);
+  min_angle = (double*) malloc(sizeof(double) * count);
+
+  lua_pushboolean(L, imAnalyzeMeasureFeret(image, count, max_feret, max_angle, min_feret, min_angle));
+
+  imlua_newarraydouble(L, max_feret, count, 0);
+  imlua_newarraydouble(L, max_angle, count, 0);
+  imlua_newarraydouble(L, min_feret, count, 0);
+  imlua_newarraydouble(L, min_angle, count, 0);
+
+  free(max_feret);
+  free(max_angle);
+  free(min_feret);
+  free(min_angle);
+
+  return 5;
+}
+
+/*****************************************************************************\
+ im.AnalyzeMeasureIntensity(label_image, image, plane, [region_count])
+\*****************************************************************************/
+static int imluaAnalyzeMeasureIntensity (lua_State *L)
+{
+  int count;
+  double *min_value, *max_value, *mean, *stddev, *sum_value;
+
+  imImage* label_image = imlua_checkimage(L, 1);
+  imImage* image = imlua_checkimage(L, 2);
+  int plane = (int)luaL_checkinteger(L, 3);
+
+  imlua_checktype(L, 1, label_image, IM_GRAY, IM_USHORT);
+  imlua_matchsize(L, label_image, image);
+
+  luaL_argcheck(L, plane >= 0 && plane < image->depth, 3, "plane is out of range");
+
+  count = imlua_checkregioncount(L, 4, label_image);
+
+  min_value = (double*) malloc(sizeof(double) * count);
+  max_value = (double*) malloc(sizeof(double) * count);
+  mean = (double*) malloc(sizeof(double) * count);
+  stddev = (double*) malloc(sizeof(double) * count);
+  sum_value = (double*) malloc(sizeof(double) * count);
+
+  lua_pushboolean(L, imAnalyzeMeasureIntensity(label_image, image, plane, count,
+                                               min_value, max_value, mean, stddev, sum_value));
+
+  imlua_newarraydouble(L, min_value, count, 0);
+  imlua_newarraydouble(L, max_value, count, 0);
+  imlua_newarraydouble(L, mean, count, 0);
+  imlua_newarraydouble(L, stddev, count, 0);
+  imlua_newarraydouble(L, sum_value, count, 0);
+
+  free(min_value);
+  free(max_value);
+  free(mean);
+  free(stddev);
+  free(sum_value);
+
+  return 6;
+}
+
+/*****************************************************************************\
  im.AnalyzeMeasurePerimArea(image)
 \*****************************************************************************/
 static int imluaAnalyzeMeasurePerimArea (lua_State *L)
@@ -653,6 +792,51 @@ static int imluaProcessDistanceTransform (lua_State *L)
 
   imProcessDistanceTransform(src_image, dst_image);
   return 0;
+}
+
+/*****************************************************************************\
+ im.ProcessWatershed(src_image, marker_image, dst_image, connect, mark_lines)
+\*****************************************************************************/
+static int imluaProcessWatershed (lua_State *L)
+{
+  imImage* src_image = imlua_checkimage(L, 1);
+  imImage* marker_image = imlua_checkimage(L, 2);
+  imImage* dst_image = imlua_checkimage(L, 3);
+  int connect = (int)luaL_checkinteger(L, 4);
+  int mark_lines = lua_toboolean(L, 5);
+
+  imlua_checktype(L, 2, marker_image, IM_GRAY, IM_USHORT);
+  imlua_checktype(L, 3, dst_image, IM_GRAY, IM_USHORT);
+  imlua_matchsize(L, src_image, marker_image);
+  imlua_matchsize(L, src_image, dst_image);
+
+  luaL_argcheck(L, connect == 4 || connect == 8, 4, "connect must be 4 or 8");
+
+  lua_pushboolean(L, imProcessWatershed(src_image, marker_image, dst_image, connect, mark_lines));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessWatershedSegment(src_image, dst_image, connect, mark_lines)
+\*****************************************************************************/
+static int imluaProcessWatershedSegment (lua_State *L)
+{
+  int region_count = 0;
+
+  imImage* src_image = imlua_checkimage(L, 1);
+  imImage* dst_image = imlua_checkimage(L, 2);
+  int connect = (int)luaL_checkinteger(L, 3);
+  int mark_lines = lua_toboolean(L, 4);
+
+  imlua_checkcolorspace(L, 1, src_image, IM_BINARY);
+  imlua_checktype(L, 2, dst_image, IM_GRAY, IM_USHORT);
+  imlua_matchsize(L, src_image, dst_image);
+
+  luaL_argcheck(L, connect == 4 || connect == 8, 3, "connect must be 4 or 8");
+
+  lua_pushboolean(L, imProcessWatershedSegment(src_image, dst_image, connect, mark_lines, &region_count));
+  lua_pushinteger(L, region_count);
+  return 2;
 }
 
 /*****************************************************************************\
@@ -1500,6 +1684,95 @@ static int imluaProcessMeanConvolve (lua_State *L)
   imlua_match(L, src_image, dst_image);
 
   lua_pushboolean(L, imProcessMeanConvolve(src_image, dst_image, kernel_size));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessBilateralFilter(src_image, dst_image, spatial_stddev, range_stddev)
+\*****************************************************************************/
+static int imluaProcessBilateralFilter (lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+  double spatial_stddev = luaL_checknumber(L, 3);
+  double range_stddev = luaL_checknumber(L, 4);
+
+  imlua_match(L, src_image, dst_image);
+
+  luaL_argcheck(L, spatial_stddev > 0, 3, "spatial_stddev must be positive");
+  luaL_argcheck(L, range_stddev > 0, 4, "range_stddev must be positive");
+
+  lua_pushboolean(L, imProcessBilateralFilter(src_image, dst_image, spatial_stddev, range_stddev));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessAnisotropicDiffusion(src_image, dst_image, time_step, kappa, iterations, func)
+\*****************************************************************************/
+static int imluaProcessAnisotropicDiffusion (lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+  double time_step = luaL_checknumber(L, 3);
+  double kappa = luaL_checknumber(L, 4);
+  int iterations = (int)luaL_checkinteger(L, 5);
+  int func = (int)luaL_optinteger(L, 6, IM_DIFFUSION_EXPONENTIAL);
+
+  imlua_match(L, src_image, dst_image);
+
+  /* Checked here as well as in the library, so a Lua caller gets an argument
+     error naming the parameter instead of a bare false return. Past a quarter
+     the explicit scheme diverges into a checkerboard rather than failing. */
+  luaL_argcheck(L, time_step > 0 && time_step <= 0.25, 3, "time_step must be in (0, 0.25]");
+  luaL_argcheck(L, kappa > 0, 4, "kappa must be positive");
+  luaL_argcheck(L, iterations >= 0, 5, "iterations must not be negative");
+
+  lua_pushboolean(L, imProcessAnisotropicDiffusion(src_image, dst_image, time_step, kappa, iterations, func));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessNonLocalMeans(src_image, dst_image, search_radius, patch_radius, filter_stddev)
+\*****************************************************************************/
+static int imluaProcessNonLocalMeans (lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *dst_image = imlua_checkimage(L, 2);
+  int search_radius = (int)luaL_checkinteger(L, 3);
+  int patch_radius = (int)luaL_checkinteger(L, 4);
+  double filter_stddev = luaL_checknumber(L, 5);
+
+  imlua_match(L, src_image, dst_image);
+
+  luaL_argcheck(L, search_radius > 0, 3, "search_radius must be positive");
+  luaL_argcheck(L, patch_radius > 0, 4, "patch_radius must be positive");
+  luaL_argcheck(L, filter_stddev > 0, 5, "filter_stddev must be positive");
+
+  lua_pushboolean(L, imProcessNonLocalMeans(src_image, dst_image, search_radius, patch_radius, filter_stddev));
+  return 1;
+}
+
+/*****************************************************************************\
+ im.ProcessRichardsonLucy(src_image, psf_image, dst_image, iterations)
+\*****************************************************************************/
+static int imluaProcessRichardsonLucy (lua_State *L)
+{
+  imImage *src_image = imlua_checkimage(L, 1);
+  imImage *psf_image = imlua_checkimage(L, 2);
+  imImage *dst_image = imlua_checkimage(L, 3);
+  int iterations = (int)luaL_checkinteger(L, 4);
+
+  imlua_match(L, src_image, dst_image);
+
+  luaL_argcheck(L, iterations >= 0, 4, "iterations must not be negative");
+
+  /* An even-sided PSF has no centre pixel, so the restoration would come out
+     shifted by half a pixel with nothing to say so. */
+  luaL_argcheck(L, psf_image->width % 2 == 1 && psf_image->height % 2 == 1, 2,
+                "psf_image must have odd width and height");
+  luaL_argcheck(L, psf_image->depth == 1, 2, "psf_image must have a single plane");
+
+  lua_pushboolean(L, imProcessRichardsonLucy(src_image, psf_image, dst_image, iterations));
   return 1;
 }
 
@@ -3949,6 +4222,10 @@ static const luaL_Reg improcess_lib[] = {
 
   {"AnalyzeFindRegions", imluaAnalyzeFindRegions},
   {"AnalyzeMeasureArea", imluaAnalyzeMeasureArea},
+  {"AnalyzeMeasureBoundingBox", imluaAnalyzeMeasureBoundingBox},
+  {"AnalyzeMeasureConvexHull", imluaAnalyzeMeasureConvexHull},
+  {"AnalyzeMeasureFeret", imluaAnalyzeMeasureFeret},
+  {"AnalyzeMeasureIntensity", imluaAnalyzeMeasureIntensity},
   {"AnalyzeMeasurePerimArea", imluaAnalyzeMeasurePerimArea},
   {"AnalyzeMeasureCentroid", imluaAnalyzeMeasureCentroid},
   {"AnalyzeMeasurePrincipalAxis", imluaAnalyzeMeasurePrincipalAxis},
@@ -3963,6 +4240,8 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessHoughLinesDraw", imluaProcessHoughLinesDraw},
   {"ProcessDistanceTransform", imluaProcessDistanceTransform},
   {"ProcessRegionalMaximum", imluaProcessRegionalMaximum},
+  {"ProcessWatershed", imluaProcessWatershed},
+  {"ProcessWatershedSegment", imluaProcessWatershedSegment},
 
   {"ProcessReduce", imluaProcessReduce},
   {"ProcessResize", imluaProcessResize},
@@ -4016,6 +4295,10 @@ static const luaL_Reg improcess_lib[] = {
   {"ProcessDiffOfGaussianConvolve", imluaProcessDiffOfGaussianConvolve},
   {"ProcessLapOfGaussianConvolve", imluaProcessLapOfGaussianConvolve},
   {"ProcessMeanConvolve", imluaProcessMeanConvolve},
+  {"ProcessBilateralFilter", imluaProcessBilateralFilter},
+  {"ProcessAnisotropicDiffusion", imluaProcessAnisotropicDiffusion},
+  {"ProcessNonLocalMeans", imluaProcessNonLocalMeans},
+  {"ProcessRichardsonLucy", imluaProcessRichardsonLucy},
   {"ProcessBarlettConvolve", imluaProcessBarlettConvolve},
   {"ProcessGaussianConvolve", imluaProcessGaussianConvolve},
   {"ProcessSobelConvolve", imluaProcessSobelConvolve},
@@ -4209,6 +4492,10 @@ static const imlua_constant im_process_constants[] = {
   { "DECORR_LBK", IM_DECORR_LBK, NULL },
   { "DECORR_LYE", IM_DECORR_LYE, NULL },
   { "DECORR_CUSTOM", IM_DECORR_CUSTOM, NULL },
+
+  { "DIFFUSION_EXPONENTIAL", IM_DIFFUSION_EXPONENTIAL, NULL },
+  { "DIFFUSION_QUADRATIC", IM_DIFFUSION_QUADRATIC, NULL },
+  { "DIFFUSION_TUKEY", IM_DIFFUSION_TUKEY, NULL },
 
   { NULL, -1, NULL },
 };

@@ -246,7 +246,9 @@ set(IM_PROCESS_SOURCES
     src/process/im_analyze.cpp         src/process/im_kernel.cpp
     src/process/im_remotesens.cpp      src/process/im_point.cpp
     src/process/im_process_counter.cpp src/process/im_binary.cpp
-    src/process/im_decorrelate.cpp
+    src/process/im_decorrelate.cpp     src/process/im_denoise.cpp
+    src/process/im_deconvolve.cpp      src/process/im_watershed.cpp
+    src/process/im_analyze_shape.cpp
     src/im_convertbitmap.cpp           src/im_convertcolor.cpp
     src/im_converttype.cpp)
 
@@ -256,8 +258,13 @@ set(IM_PROCESS_SOURCES
 # and whose /openmp is 2.0 -- the reductions here are named scalars for that
 # reason.
 if(NOT MSVC)
-    set_source_files_properties(src/process/im_decorrelate.cpp PROPERTIES
-        COMPILE_OPTIONS "-Wall;-Wextra")
+    set_source_files_properties(
+        src/process/im_decorrelate.cpp
+        src/process/im_denoise.cpp
+        src/process/im_deconvolve.cpp
+        src/process/im_watershed.cpp
+        src/process/im_analyze_shape.cpp
+        PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 endif()
 
 if(IM_BUILD_PROCESS)

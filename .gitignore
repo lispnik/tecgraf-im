@@ -6,3 +6,9 @@
 # macOS junk
 .DS_Store
 /build/
+
+# The two extra configurations CLAUDE.md's "Verifying a change" tells you to
+# create. Only /build/ was ignored, so following those instructions left two
+# build trees sitting in git status waiting to be committed by accident.
+/build-asserts/
+/build-san/

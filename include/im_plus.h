@@ -960,6 +960,18 @@ namespace im
       imProcessDistanceTransform(src_image.GetHandle(), dst_image.GetHandle()); }
     inline void RegionalMaximum(const Image& src_image, Image& dst_image) {
       imProcessRegionalMaximum(src_image.GetHandle(), dst_image.GetHandle()); }
+    inline int Watershed(const Image& src_image, const Image& marker_image, Image& dst_image, int connect, int mark_lines) {
+      return imProcessWatershed(src_image.GetHandle(), marker_image.GetHandle(), dst_image.GetHandle(), connect, mark_lines); }
+    inline int WatershedSegment(const Image& src_image, Image& dst_image, int connect, int mark_lines, int &region_count) {
+      return imProcessWatershedSegment(src_image.GetHandle(), dst_image.GetHandle(), connect, mark_lines, &region_count); }
+    inline int BilateralFilter(const Image& src_image, Image& dst_image, double spatial_stddev, double range_stddev) {
+      return imProcessBilateralFilter(src_image.GetHandle(), dst_image.GetHandle(), spatial_stddev, range_stddev); }
+    inline int AnisotropicDiffusion(const Image& src_image, Image& dst_image, double time_step, double kappa, int iterations, int func) {
+      return imProcessAnisotropicDiffusion(src_image.GetHandle(), dst_image.GetHandle(), time_step, kappa, iterations, func); }
+    inline int NonLocalMeans(const Image& src_image, Image& dst_image, int search_radius, int patch_radius, double filter_stddev) {
+      return imProcessNonLocalMeans(src_image.GetHandle(), dst_image.GetHandle(), search_radius, patch_radius, filter_stddev); }
+    inline int RichardsonLucy(const Image& src_image, const Image& psf_image, Image& dst_image, int iterations) {
+      return imProcessRichardsonLucy(src_image.GetHandle(), psf_image.GetHandle(), dst_image.GetHandle(), iterations); }
     inline void FFT(const Image& src_image, Image& dst_image) {
       imProcessFFT(src_image.GetHandle(), dst_image.GetHandle()); }
     inline void IFFT(const Image& src_image, Image& dst_image) {
@@ -1453,6 +1465,27 @@ namespace im
                                                             measure_table.AddMeasureDouble("HolesPerimeter")); }
     inline int MeasurePerimeter(const Image& region_image, MeasureTable& measure_table) {
       return imAnalyzeMeasurePerimeter(region_image.GetHandle(), measure_table.AddMeasureDouble("Perimeter"), measure_table.RegionCount()); }
+    /* Unlike MeasureCentroid and MeasurePrincipalAxis, none of these four read
+       a row another measurement has to have written first, so they can be
+       called in any order and on their own. */
+    inline int MeasureBoundingBox(const Image& region_image, MeasureTable& measure_table) {
+      return imAnalyzeMeasureBoundingBox(region_image.GetHandle(), measure_table.RegionCount(),
+                                                         measure_table.AddMeasureInt("BoxXMin"), measure_table.AddMeasureInt("BoxXMax"),
+                                                         measure_table.AddMeasureInt("BoxYMin"), measure_table.AddMeasureInt("BoxYMax")); }
+    inline int MeasureConvexHull(const Image& region_image, MeasureTable& measure_table) {
+      return imAnalyzeMeasureConvexHull(region_image.GetHandle(), measure_table.RegionCount(),
+                                                        measure_table.AddMeasureDouble("HullArea"), measure_table.AddMeasureDouble("HullPerimeter")); }
+    inline int MeasureFeret(const Image& region_image, MeasureTable& measure_table) {
+      return imAnalyzeMeasureFeret(region_image.GetHandle(), measure_table.RegionCount(),
+                                                   measure_table.AddMeasureDouble("MaxFeret"), measure_table.AddMeasureDouble("MaxFeretAngle"),
+                                                   measure_table.AddMeasureDouble("MinFeret"), measure_table.AddMeasureDouble("MinFeretAngle")); }
+    /* The only one that reads a second image: the label image says which
+       region a pixel belongs to, and this one says how bright it is there. */
+    inline int MeasureIntensity(const Image& region_image, const Image& image, int plane, MeasureTable& measure_table) {
+      return imAnalyzeMeasureIntensity(region_image.GetHandle(), image.GetHandle(), plane, measure_table.RegionCount(),
+                                                       measure_table.AddMeasureDouble("IntensityMin"), measure_table.AddMeasureDouble("IntensityMax"),
+                                                       measure_table.AddMeasureDouble("IntensityMean"), measure_table.AddMeasureDouble("IntensityStdDev"),
+                                                       measure_table.AddMeasureDouble("IntensitySum")); }
 
   }
 

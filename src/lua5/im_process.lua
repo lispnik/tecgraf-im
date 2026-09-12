@@ -137,6 +137,26 @@ OneSourceOneDest("ProcessHoughLines", 180, hough_height, im.GRAY, im.INT)
 OneSourceOneDest("ProcessHoughLinesDraw")
 OneSourceOneDest("ProcessDistanceTransform", nil, nil, nil, im.FLOAT)
 OneSourceOneDest("ProcessRegionalMaximum", nil, nil, im.BINARY, nil)
+-- Deliberately NOT OneSourceOneDest. That wrapper keeps only the FIRST value
+-- the C function returns, and this one returns the region count as a second,
+-- which would be dropped -- the same way it is silently dropped from
+-- im.AnalyzeFindRegionsNew above, whose header documents a region_count that
+-- never arrives.
+function im.ProcessWatershedSegmentNew (src_image, connect, mark_lines)
+  local dst_image = im.ImageCreateBased(src_image, nil, nil, im.GRAY, im.USHORT)
+  local ret, region_count = im.ProcessWatershedSegment(src_image, dst_image, connect, mark_lines)
+  return ret, region_count, dst_image
+end
+
+-- The destination is built from the FIRST source, which is the relief; the
+-- marker image is the second and only supplies the labels.
+TwoSourcesOneDest("ProcessWatershed", nil, nil, im.GRAY, im.USHORT)
+-- Likewise here the second source is the point spread function, which is a
+-- different size from the image and must not decide the destination's.
+TwoSourcesOneDest("ProcessRichardsonLucy")
+OneSourceOneDest("ProcessBilateralFilter")
+OneSourceOneDest("ProcessAnisotropicDiffusion")
+OneSourceOneDest("ProcessNonLocalMeans")
 
 function im.ProcessReduceNew (src_image, width, height, order)
   local dst_image = im.ImageCreateBased(src_image, width, height)

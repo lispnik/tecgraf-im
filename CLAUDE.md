@@ -219,9 +219,11 @@ its declaration and the debug build rejected it; the out-of-bounds read in
 the line; and a test that trips an `assert` passes in release and aborts the suite in
 debug, which is what the `#ifdef NDEBUG` convention above exists for.
 
-`-Wall -Wextra` is set per-source on `src/im_capture_avf.mm` only (see the comment beside it
-in `CMakeLists.txt`), not on the tree — the legacy sources would drown. New self-contained
-files are worth adding to that list; it caught a dead function the day it appeared.
+`-Wall -Wextra` is set per-source, not on the tree — the legacy sources would drown. Two
+lists carry it: `src/im_capture_avf.mm` (see the comment beside it in `CMakeLists.txt`),
+and the process sources this fork added — `im_decorrelate`, `im_denoise`, `im_deconvolve`,
+`im_watershed` and `im_analyze_shape`. New self-contained files are worth adding to the
+second; it caught a dead function the day it appeared.
 
 ### Two things that bite
 

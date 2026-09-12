@@ -205,3 +205,13 @@ EXPORTS
   imProcessDecorrelationCalcTransform
   imProcessDecorrelationApplyTransform
   imProcessDecorrelationStretch
+  imProcessBilateralFilter
+  imProcessAnisotropicDiffusion
+  imProcessNonLocalMeans
+  imProcessRichardsonLucy
+  imProcessWatershed
+  imProcessWatershedSegment
+  imAnalyzeMeasureBoundingBox
+  imAnalyzeMeasureConvexHull
+  imAnalyzeMeasureFeret
+  imAnalyzeMeasureIntensity

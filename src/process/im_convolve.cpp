@@ -817,15 +817,36 @@ static int DoConvolveStep(const imImage* src_image, imImage* dst_image, const im
       else
         ret = DoConvolveCpx((imcfloat*)src_image->data[i], (imcfloat*)dst_image->data[i], src_image->width, src_image->height, (float*)kernel->data[0], kernel->width, kernel->height, counter);
       break;
+    /* These two branch on the kernel's type for the same reason every case
+       above does. They did not, and read whatever the kernel held as
+       double: an IM_INT kernel is half the size of the doubles it was being
+       read as, so a 7x7 one overran its allocation by 196 bytes and the
+       convolution ran on garbage. imProcessMeanConvolve reaches here with
+       exactly that combination -- it always builds an IM_INT kernel -- so
+       every call of it on an IM_DOUBLE image was an out-of-bounds read.
+
+       ASan named it; nothing else did. The values that come back are
+       plausible, which is this codebase's characteristic failure and the
+       reason the sanitizer build exists. */
     case IM_DOUBLE:
-      ret = DoConvolve((double*)src_image->data[i], (double*)dst_image->data[i], src_image->width, src_image->height, (double*)kernel->data[0], kernel->width, kernel->height, counter, (double)0);
+      if (kernel->data_type == IM_INT)
+        ret = DoConvolve((double*)src_image->data[i], (double*)dst_image->data[i], src_image->width, src_image->height, (int*)kernel->data[0], kernel->width, kernel->height, counter, (double)0);
+      else if (kernel->data_type == IM_FLOAT)
+        ret = DoConvolve((double*)src_image->data[i], (double*)dst_image->data[i], src_image->width, src_image->height, (float*)kernel->data[0], kernel->width, kernel->height, counter, (double)0);
+      else
+        ret = DoConvolve((double*)src_image->data[i], (double*)dst_image->data[i], src_image->width, src_image->height, (double*)kernel->data[0], kernel->width, kernel->height, counter, (double)0);
       break;
     case IM_CDOUBLE:
-      ret = DoConvolveCpx((imcdouble*)src_image->data[i], (imcdouble*)dst_image->data[i], src_image->width, src_image->height, (double*)kernel->data[0], kernel->width, kernel->height, counter);
+      if (kernel->data_type == IM_INT)
+        ret = DoConvolveCpx((imcdouble*)src_image->data[i], (imcdouble*)dst_image->data[i], src_image->width, src_image->height, (int*)kernel->data[0], kernel->width, kernel->height, counter);
+      else if (kernel->data_type == IM_FLOAT)
+        ret = DoConvolveCpx((imcdouble*)src_image->data[i], (imcdouble*)dst_image->data[i], src_image->width, src_image->height, (float*)kernel->data[0], kernel->width, kernel->height, counter);
+      else
+        ret = DoConvolveCpx((imcdouble*)src_image->data[i], (imcdouble*)dst_image->data[i], src_image->width, src_image->height, (double*)kernel->data[0], kernel->width, kernel->height, counter);
       break;
     }
-    
-    if (!ret) 
+
+    if (!ret)
       break;
   }
 

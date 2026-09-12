@@ -102,6 +102,61 @@ void imProcessDistanceTransform(const imImage* src_image, imImage* dst_image);
  * \ingroup transform */
 void imProcessRegionalMaximum(const imImage* src_image, imImage* dst_image);
 
+/** \defgroup watershed Watershed Segmentation
+ * \par
+ * Splitting an image into catchment basins by flooding it from given markers.
+ * \par
+ * See \ref im_process_glo.h
+ * \ingroup process */
+
+/** Marker-controlled watershed, by Meyer's flooding algorithm. \n
+ * Reads src_image as a relief map and floods it from the labelled markers,
+ * lowest ground first, so every pixel joins the marker whose water reached it.
+ * All three images must be of the same size and one plane. \n
+ * src_image is IM_GRAY of any real data type -- LOW values are flooded first,
+ * so basins must be the features of interest; negate the image if they are
+ * not. marker_image and dst_image are IM_GRAY/IM_USHORT, marker_image labelled
+ * as \ref imAnalyzeFindRegions labels, with 0 meaning unmarked. dst_image may
+ * be the same image as marker_image. \n
+ * connect is 4 or 8. When mark_lines is non-zero, a pixel that two different
+ * basins reach at once is left as 0 in dst_image and belongs to neither, which
+ * draws one-pixel watershed lines between the regions; when it is zero, every
+ * pixel is assigned and the regions meet directly. \n
+ * A region seeded by no marker is never labelled: this segments the markers
+ * given, it does not find them. \ref imProcessWatershedSegment is the usual
+ * way to obtain markers.
+ * Not using OpenMP when enabled -- the flood is inherently sequential.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.ProcessWatershed(src_image: imImage, marker_image: imImage, dst_image: imImage, connect: number, mark_lines: boolean) -> counter: boolean [in Lua 5] \endverbatim
+ * \verbatim im.ProcessWatershedNew(image: imImage, marker_image: imImage, connect: number, mark_lines: boolean) -> counter: boolean, new_image: imImage [in Lua 5] \endverbatim
+ * \ingroup watershed */
+int imProcessWatershed(const imImage* src_image, const imImage* marker_image, imImage* dst_image, int connect, int mark_lines);
+
+/** Separates touching objects in a binary image, and labels them. \n
+ * src_image is IM_BINARY, dst_image is IM_GRAY/IM_USHORT and receives one
+ * label per object, exactly as \ref imAnalyzeFindRegions would -- so every
+ * imAnalyzeMeasure* function reads the result directly. Both must be the same
+ * size. region_count returns the number of objects found. \n
+ * This is what \ref imAnalyzeFindRegions cannot do: two objects that touch are
+ * one connected region, and no amount of labelling will make them two. The
+ * recipe is \ref imProcessDistanceTransform to find how deep inside an object
+ * each pixel is, \ref imProcessRegionalMaximum to find the object centres, and
+ * a watershed of the negated distance map seeded from those centres, which
+ * splits the pair along the neck between them. \n
+ * connect is 4 or 8, and applies both to grouping the markers and to the
+ * flood. mark_lines leaves a one-pixel gap of 0 between objects when non-zero.
+ * Objects touching the border are included. \n
+ * Convex objects of similar size separate cleanly; a strongly concave object
+ * can carry more than one distance maximum and be split in two, which is this
+ * method's characteristic failure and is not detectable from the output.
+ * Returns zero if the counter aborted.
+ *
+ * \verbatim im.ProcessWatershedSegment(src_image: imImage, dst_image: imImage, connect: number, mark_lines: boolean) -> counter: boolean, region_count: number [in Lua 5] \endverbatim
+ * \verbatim im.ProcessWatershedSegmentNew(image: imImage, connect: number, mark_lines: boolean) -> counter: boolean, region_count: number, new_image: imImage [in Lua 5] \endverbatim
+ * \ingroup watershed */
+int imProcessWatershedSegment(const imImage* src_image, imImage* dst_image, int connect, int mark_lines, int* region_count);
+
 
 
 /** \defgroup fourier Fourier Transform Operations

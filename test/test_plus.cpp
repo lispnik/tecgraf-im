@@ -1886,6 +1886,77 @@ TEST_CASE("plus: the remaining Analyze measurements reach their C functions")
   const double* major = measures.GetMeasureDouble("MajorLength");
   REQUIRE(major != NULL);
   CHECK(major[0] > 0);
+
+  /* The shape measurements this fork added. None depends on another row, so
+     unlike the block above they need no ordering. */
+  CHECK(im::Analyze::MeasureBoundingBox(regions, measures) != 0);
+  CHECK(im::Analyze::MeasureConvexHull(regions, measures) != 0);
+  CHECK(im::Analyze::MeasureFeret(regions, measures) != 0);
+
+  /* The blob was drawn at x 3..9 and y 3..8, so the box is known exactly
+     rather than merely positive -- which is what catches a wrapper that
+     passed the four output pointers in the wrong order. */
+  const int* xmin = measures.GetMeasureInt("BoxXMin");
+  const int* xmax = measures.GetMeasureInt("BoxXMax");
+  const int* ymin = measures.GetMeasureInt("BoxYMin");
+  const int* ymax = measures.GetMeasureInt("BoxYMax");
+  REQUIRE(xmin != NULL); REQUIRE(xmax != NULL);
+  REQUIRE(ymin != NULL); REQUIRE(ymax != NULL);
+  CHECK(xmin[0] == 3);
+  CHECK(xmax[0] == 9);
+  CHECK(ymin[0] == 3);
+  CHECK(ymax[0] == 8);
+
+  /* The hull is measured between pixel CENTRES, as test_analyze_shape.cpp
+     establishes and that file's header explains. So it is not comparable to
+     the pixel count in "Area" -- a convex region's area/hull_area solidity
+     comes out slightly over 1, which is expected rather than a defect. The
+     blob spans x 3..9 and y 3..8, so its hull is 6 by 5 and can be written
+     down exactly; the punched hole is interior and does not reach it. */
+  const double* hull_area = measures.GetMeasureDouble("HullArea");
+  const double* hull_perim = measures.GetMeasureDouble("HullPerimeter");
+  REQUIRE(hull_area != NULL);
+  REQUIRE(hull_perim != NULL);
+  CHECK(hull_area[0] == doctest::Approx(6.0 * 5.0));
+  CHECK(hull_perim[0] == doctest::Approx(2.0 * (6.0 + 5.0)));
+
+  /* The blob is wider than it is tall, so its maximum Feret diameter is the
+     diagonal and strictly exceeds the minimum. Asserting the relation rather
+     than the value keeps this independent of whether the implementation
+     measures pixel centres or their outer corners. */
+  const double* max_feret = measures.GetMeasureDouble("MaxFeret");
+  const double* min_feret = measures.GetMeasureDouble("MinFeret");
+  const double* max_angle = measures.GetMeasureDouble("MaxFeretAngle");
+  REQUIRE(max_feret != NULL); REQUIRE(min_feret != NULL); REQUIRE(max_angle != NULL);
+  CHECK(max_feret[0] > min_feret[0]);
+  CHECK(min_feret[0] > 0);
+  CHECK(max_angle[0] >= 0.0);
+  CHECK(max_angle[0] < 180.0);
+
+  /* MeasureIntensity is the one that reads a second image. Filling it with a
+     single value makes every statistic exact: a uniform region has that mean,
+     no spread, and a sum of value times area. */
+  im::Image gray(AW, AH, IM_GRAY, IM_BYTE);
+  REQUIRE(!gray.Failed());
+  gray.Clear();
+  for (int y = 3; y <= 8; y++)
+    for (int x = 3; x <= 9; x++)
+      gray.SetValue(0, y, x, 100);
+
+  CHECK(im::Analyze::MeasureIntensity(regions, gray, 0, measures) != 0);
+
+  const double* imin = measures.GetMeasureDouble("IntensityMin");
+  const double* imax = measures.GetMeasureDouble("IntensityMax");
+  const double* imean = measures.GetMeasureDouble("IntensityMean");
+  const double* istddev = measures.GetMeasureDouble("IntensityStdDev");
+  const double* isum = measures.GetMeasureDouble("IntensitySum");
+  REQUIRE(imin != NULL); REQUIRE(imax != NULL); REQUIRE(imean != NULL);
+  REQUIRE(istddev != NULL); REQUIRE(isum != NULL);
+  CHECK(imin[0] == doctest::Approx(100.0));
+  CHECK(imax[0] == doctest::Approx(100.0));
+  CHECK(imean[0] == doctest::Approx(100.0));
+  CHECK(istddev[0] == doctest::Approx(0.0));
+  CHECK(isum[0] == doctest::Approx(100.0 * area[0]));
 }
 
 TEST_CASE("plus: AttribTable iterates its entries")
@@ -3277,5 +3348,121 @@ TEST_CASE("plus: the multiple-image wrappers forward their arrays")
     imProcessMultipleStdDev(c_list, 3, mean.c, dst.c);
     CHECK(same_data(dst.plus.GetHandle(), dst.c));
     CHECK(wrote_something(dst.c));
+  }
+}
+
+TEST_CASE("plus: the denoising and deconvolution wrappers forward to their C functions")
+{
+  SUBCASE("BilateralFilter")
+  {
+    Pair src(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::BilateralFilter(src.plus, dst.plus, 1.5, 20.0) != 0);
+    CHECK(imProcessBilateralFilter(src.c, dst.c, 1.5, 20.0) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("AnisotropicDiffusion")
+  {
+    Pair src(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::AnisotropicDiffusion(src.plus, dst.plus, 0.2, 20.0, 4, IM_DIFFUSION_EXPONENTIAL) != 0);
+    CHECK(imProcessAnisotropicDiffusion(src.c, dst.c, 0.2, 20.0, 4, IM_DIFFUSION_EXPONENTIAL) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("NonLocalMeans")
+  {
+    Pair src(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+    CHECK(im::Process::NonLocalMeans(src.plus, dst.plus, 2, 1, 20.0) != 0);
+    CHECK(imProcessNonLocalMeans(src.c, dst.c, 2, 1, 20.0) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+  }
+  SUBCASE("RichardsonLucy")
+  {
+    /* The PSF is a second source of a DIFFERENT size from the image, which is
+       the one thing this wrapper could get wrong that the others could not:
+       forwarding the wrong handle compiles either way. */
+    Pair src(IM_GRAY, IM_BYTE);
+    DstPair dst(IM_GRAY, IM_BYTE);
+
+    imImage* c_psf = imImageCreate(3, 3, IM_GRAY, IM_BYTE);
+    REQUIRE(c_psf != NULL);
+    memset(c_psf->data[0], 0, (size_t)c_psf->count);
+    ((imbyte*)c_psf->data[0])[4] = 1;
+
+    im::Image plus_psf(3, 3, IM_GRAY, IM_BYTE);
+    REQUIRE(!plus_psf.Failed());
+    memcpy(plus_psf.GetHandle()->data[0], c_psf->data[0], (size_t)c_psf->count);
+
+    CHECK(im::Process::RichardsonLucy(src.plus, plus_psf, dst.plus, 4) != 0);
+    CHECK(imProcessRichardsonLucy(src.c, c_psf, dst.c, 4) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    imImageDestroy(c_psf);
+  }
+}
+
+TEST_CASE("plus: the watershed wrappers forward to their C functions")
+{
+  SUBCASE("Watershed")
+  {
+    Pair relief(IM_GRAY, IM_BYTE);
+
+    /* Markers cannot come from Pair's seeding: they have to be a valid label
+       image, and a label past the region count would be measured against
+       nothing. Two seeds, one at each end of the row. */
+    imImage* c_marker = imImageCreate(BW, BH, IM_GRAY, IM_USHORT);
+    REQUIRE(c_marker != NULL);
+    memset(c_marker->data[0], 0, (size_t)c_marker->count * sizeof(imushort));
+    ((imushort*)c_marker->data[0])[0] = 1;
+    ((imushort*)c_marker->data[0])[BW - 1] = 2;
+
+    im::Image plus_marker(BW, BH, IM_GRAY, IM_USHORT);
+    REQUIRE(!plus_marker.Failed());
+    memcpy(plus_marker.GetHandle()->data[0], c_marker->data[0],
+           (size_t)c_marker->count * sizeof(imushort));
+
+    DstPair dst(IM_GRAY, IM_USHORT);
+    CHECK(im::Process::Watershed(relief.plus, plus_marker, dst.plus, 8, 1) != 0);
+    CHECK(imProcessWatershed(relief.c, c_marker, dst.c, 8, 1) != 0);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    imImageDestroy(c_marker);
+  }
+  SUBCASE("WatershedSegment")
+  {
+    /* The region count crosses as a reference, which is the part of this
+       wrapper worth a case: a by-value parameter would compile and leave the
+       caller's count at whatever it started as. */
+    imImage* c_binary = imImageCreate(BW, BH, IM_BINARY, IM_BYTE);
+    REQUIRE(c_binary != NULL);
+    memset(c_binary->data[0], 0, (size_t)c_binary->count);
+
+    im::Image plus_binary(BW, BH, IM_BINARY, IM_BYTE);
+    REQUIRE(!plus_binary.Failed());
+
+    for (int y = 3; y < 9; y++)
+      for (int x = 3; x < 13; x++)
+        ((imbyte*)c_binary->data[0])[y * BW + x] = 1;
+
+    memcpy(plus_binary.GetHandle()->data[0], c_binary->data[0], (size_t)c_binary->count);
+
+    DstPair dst(IM_GRAY, IM_USHORT);
+
+    int plus_count = -1, c_count = -1;
+    CHECK(im::Process::WatershedSegment(plus_binary, dst.plus, 8, 1, plus_count) != 0);
+    CHECK(imProcessWatershedSegment(c_binary, dst.c, 8, 1, &c_count) != 0);
+
+    CHECK(plus_count == c_count);
+    CHECK(plus_count >= 1);
+    CHECK(same_data(dst.plus.GetHandle(), dst.c));
+    CHECK(wrote_something(dst.c));
+
+    imImageDestroy(c_binary);
   }
 }
