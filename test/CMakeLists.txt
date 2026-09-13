@@ -118,6 +118,44 @@ endif()
 # test rather than an opaque whole-binary failure.
 doctest_discover_tests(im_tests ${_im_test_properties})
 
+# ----------------------------------------------------------------------
+# The same suite's blind spot: libim_process_omp
+# ----------------------------------------------------------------------
+#
+# im_tests links the plain libim_process and must keep doing so, for the
+# reason given above. That leaves the OpenMP build with no coverage at all,
+# and it is not merely the same code faster -- _OPENMP selects a different
+# progress counter, and a crash that lived in it went unseen for as long as
+# the library has had one. The two libraries export identical symbol sets, so
+# covering it needs a second executable rather than a second test file.
+#
+# Deliberately small. This is not a second copy of the suite; it is the
+# handful of cases whose answer differs between the two builds.
+if(TARGET im_process_omp)
+    add_executable(im_tests_omp test_main.cpp test_counter_omp.cpp)
+    target_include_directories(im_tests_omp
+        PRIVATE ${CMAKE_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(im_tests_omp PRIVATE im im_process_omp)
+    # A timeout, unlike im_tests: the counter lock has to be re-entrant, and a
+    # regression there presents as a deadlock rather than a failed assertion.
+    # Sixty seconds is far longer than the whole binary needs and short enough
+    # that a hung job is reported rather than waited out.
+    #
+    # Folded into one PROPERTIES list rather than appended as a second keyword:
+    # these end up in set_tests_properties, where PROPERTIES may appear once,
+    # and _im_test_properties already carries it on the sanitizer jobs.
+    set(_im_omp_test_properties ${_im_test_properties})
+    if(_im_omp_test_properties)
+        list(APPEND _im_omp_test_properties TIMEOUT 60)
+    else()
+        set(_im_omp_test_properties PROPERTIES TIMEOUT 60)
+    endif()
+
+    doctest_discover_tests(im_tests_omp ${_im_omp_test_properties}
+                           TEST_PREFIX "omp.")
+endif()
+
 # The forked crash probes that used to live here (test_attrib_isolated.cpp)
 # are gone: the two cases they covered -- a negative element count reaching
 # imAttribNode -- no longer crash, so they are ordinary assertions in

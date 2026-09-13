@@ -89,6 +89,16 @@ Four conventions matter when adding tests:
   go through `build/lib/im_capture_grab.app`, launched with `open` so LaunchServices
   attributes the request to the bundle. See BUILDING.md.
 
+- **A behaviour that differs between `libim_process` and `libim_process_omp` needs
+  `im_tests_omp`.** `im_tests` links the plain build on purpose — the point
+  operations hand a thread index to their callbacks, so the OpenMP build would
+  make call counts and visit order depend on the host's core count — which left
+  the OpenMP half with no coverage whatever. The two libraries export identical
+  symbol sets, so a second test file is not enough; it takes a second
+  executable. `test/test_counter_omp.cpp` is it, and it is deliberately small:
+  only the cases whose answer differs between the builds belong there, not a
+  second copy of the suite. Its CTest entries are prefixed `omp.`.
+
 - **`test/smoke.lua` is the only check that reaches the bindings** and the `PREFIX ""`
   module-naming convention; a C++ binary cannot cover that. CMake passes it the library
   directory, the platform suffix, and only the add-on modules actually built.
@@ -170,6 +180,20 @@ Layered, with each layer a separate shared library so consumers link only what t
   `OpenMP::OpenMP_CXX` linked in. Both share `src/im_process.def`. Note that
   `im_convertbitmap.cpp`, `im_convertcolor.cpp`, and `im_converttype.cpp` are compiled
   into *both* `libim` and `libim_process`.
+
+  The two are not the same code at different speeds: `_OPENMP` selects a
+  different progress counter (`im_process_counter.h`), and that is where the
+  builds genuinely diverge. Every source under `src/process/` must open and
+  close a counter with **`imProcessCounterBegin` / `imProcessCounterEnd`**,
+  never `imCounterBegin` / `imCounterEnd` directly — one grep enforces it.
+  The rule is cheap now and used not to be: the OpenMP layer kept a per-counter
+  `omp_lock_t` in the counter's own *public* user data, so a counter begun one
+  way and ended the other freed a lock that was never allocated and the process
+  died at address 0. `imAnalyzeFindRegions` and `imProcessCanny` both did, for
+  as long as the library has had a counter, and neither was visible without a
+  callback attached — which no test had ever done. The lock is a named
+  `#pragma omp critical` now, so there is no per-counter state to mismatch and
+  nothing in `libim_process` touches `imCounterSetUserData`.
 - **`libim_jp2`** / **`libim_fftw3`** — optional single-file add-ons over jasper and
   fftw3.
 - **`libim_heif`** (`src/im_format_heif.cpp`) — HEIC and AVIF over libheif, the newest

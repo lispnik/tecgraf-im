@@ -187,10 +187,10 @@ int imProcessBinThinNhMaps(const imImage* src_image, imImage* dst_image)
   if (!imCheckSameTypeSize(src_image, dst_image))
     return 0;
 
-  int counter = imCounterBegin("BinThinNhMaps");
+  int counter = imProcessCounterBegin("BinThinNhMaps");
   imImageCopyData(src_image, dst_image);
   int ret = DoThinImage((imbyte*)dst_image->data[0], dst_image->width, dst_image->height, counter);
-  imCounterEnd(counter);
+  imProcessCounterEnd(counter);
   return ret;
 }
 
@@ -262,7 +262,7 @@ int imProcessBinThinZhangSuen(imImage* src_image, imImage* dst_image)
   end_y = h - 2;
   end_x = w - 2;
 
-  int counter = imCounterBegin("BinThinNhMaps");
+  int counter = imProcessCounterBegin("BinThinNhMaps");
 
   if (src_map != map)
     memcpy(map, src_map, src_image->count);
@@ -291,7 +291,7 @@ int imProcessBinThinZhangSuen(imImage* src_image, imImage* dst_image)
       if (!imCounterInc(counter))
       {
         free(markers);
-        imCounterEnd(counter);
+        imProcessCounterEnd(counter);
         return 0;
       }
     }
@@ -320,7 +320,7 @@ int imProcessBinThinZhangSuen(imImage* src_image, imImage* dst_image)
       if (!imCounterInc(counter))
       {
         free(markers);
-        imCounterEnd(counter);
+        imProcessCounterEnd(counter);
         return 0;
       }
     }
@@ -336,6 +336,6 @@ int imProcessBinThinZhangSuen(imImage* src_image, imImage* dst_image)
   } while (processed == 1);
 
   free(markers);
-  imCounterEnd(counter);
+  imProcessCounterEnd(counter);
   return 1;
 }

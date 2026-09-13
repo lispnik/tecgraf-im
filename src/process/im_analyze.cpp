@@ -413,7 +413,7 @@ static int DoAnalyzeFindRegionsBorder(int width, int height, imbyte* map, imusho
 int imAnalyzeFindRegions(const imImage* src_image, imImage* dst_image, int connect, int touch_border, int *region_count)
 {
   int ret = 0;
-  int counter = imCounterBegin("FindRegions");
+  int counter = imProcessCounterBegin("FindRegions");
 
   imImageSetAttribute(dst_image, "REGION_CONNECT", IM_BYTE, 1, connect == 4 ? "4" : "8");
   if (touch_border)
@@ -451,11 +451,20 @@ int imAnalyzeMeasureArea(const imImage* image, int* data_area, int region_count)
 
     if (img_data[i])
     {
+      /* The caller's arrays are region_count long, and this loop indexes them
+         by whatever label the image holds. A label above region_count is not
+         this function's to describe, and writing one used to run off the end
+         of the array -- a heap corruption for a caller who asked for fewer
+         regions than the image carries, with nothing to say so. The
+         measurements in im_analyze_shape.cpp bound the index the same way. */
       int index = img_data[i] - 1;
+      if (index < region_count)
+      {
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
-      data_area[index]++;
+        data_area[index]++;
+      }
     }
 
     if (i % image->width == 0)
@@ -515,7 +524,7 @@ int imAnalyzeMeasureCentroid(const imImage* image, const int* data_area, int reg
     for (int x = 0; x < image->width; x++)
     {
       int region_index = img_data[offset+x];
-      if (region_index)
+      if (region_index && region_index-1 < region_count)
       {
         int ri = region_index-1;
         if (data_cx) 
@@ -586,7 +595,7 @@ static int iCalcMoment(double* cm, int px, int py, const imImage* image, const d
     for (int x = 0; x < image->width; x++)
     {
       int region_index = img_data[offset+x];
-      if (region_index)
+      if (region_index && region_index-1 < region_count)
       {
         int ri = region_index-1;
 
@@ -898,6 +907,8 @@ int imAnalyzeMeasurePrincipalAxis(const imImage* image, const int* data_area, co
       if (IsPerimeterPoint(img_data+offset, width, height, x, y))
       {
         int index = img_data[offset+x] - 1;
+        if (index >= region_count)
+          continue;
 
         double d1, d2;
         if (slope2[index] == 90)
@@ -1120,7 +1131,7 @@ int imAnalyzeMeasureHoles(const imImage* image, int connect, int region_count, i
         else if (img_data[offset + x-1]) region_index = img_data[offset + x-1]; 
         else if (img_data[offset_dw+x]) region_index = img_data[offset_dw+x];
 
-        if (region_index) 
+        if (region_index && region_index-1 < region_count)
         {
           if (count_data) 
             count_data[region_index-1]++;
@@ -1369,11 +1380,14 @@ int imAnalyzeMeasurePerimeter(const imImage* image, double* perim_data, int regi
         if (T)
         {
           int index = map[offset+x] - 1;
-          double inc = vt[templ[T]];
+          if (index < region_count)
+          {
+            double inc = vt[templ[T]];
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
-          perim_data[index] += inc;
+            perim_data[index] += inc;
+          }
         }
       }
     }
@@ -1565,11 +1579,14 @@ int imAnalyzeMeasurePerimArea(const imImage* image, double* perimarea_data, int 
         if (T)
         {
           int index = v-1;
-          double inc = vt[templ[T]];
+          if (index < region_count)
+          {
+            double inc = vt[templ[T]];
 #ifdef _OPENMP
 #pragma omp atomic
 #endif
-          perimarea_data[index] += inc;
+            perimarea_data[index] += inc;
+          }
         }
       }
     }

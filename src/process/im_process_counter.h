@@ -40,12 +40,7 @@ int imProcessOpenMPSetNumThreads(int count);
 #define IM_MAX_THREADS        omp_get_max_threads()
 #define IM_THREAD_NUM         omp_get_thread_num()
 
-int  imCounterBegin_OMP(const char* title);
-void imCounterEnd_OMP(int counter);
 int  imCounterInc_OMP(int counter);
-
-#define imProcessCounterBegin imCounterBegin_OMP
-#define imProcessCounterEnd   imCounterEnd_OMP
 
 #else
 
@@ -59,10 +54,16 @@ int  imCounterInc_OMP(int counter);
 #define IM_MAX_THREADS 1
 #define IM_THREAD_NUM  0
 
+#endif
+
+/* The same in both builds: only the increment needs to serialize, and that is
+   what imCounterInc_OMP is for. Keeping one spelling here is what makes a
+   mismatched Begin/End pair impossible to write -- see the note in
+   im_process_counter.cpp for the crash it used to cause. Everything under
+   src/process/ should use these rather than imCounterBegin and imCounterEnd
+   directly, so the rule is one grep. */
 #define imProcessCounterBegin imCounterBegin
 #define imProcessCounterEnd   imCounterEnd
-
-#endif
 
 
 #if defined(__cplusplus)

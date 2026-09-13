@@ -174,6 +174,20 @@ int imCalcPercentMinMax(const imImage* image, double percent, int ignore_zero, i
 
 /** \defgroup analyze Image Analysis
  * \par
+ * Measurements over a labelled image, the result of \ref imAnalyzeFindRegions.
+ * \par
+ * Every imAnalyzeMeasure* function takes a region_count and writes arrays of
+ * that length, indexed by label-1. It is the caller's number, not the image's:
+ * nothing in an imImage records how many regions it carries. A label above
+ * region_count is skipped rather than measured, so passing a smaller count
+ * measures the first region_count regions and is a supported way to ask for
+ * them. It is not an out-of-bounds write -- it used to be, silently, which is
+ * the reason this paragraph exists.
+ * \par
+ * All of these measure between pixel CENTRES except \ref imAnalyzeMeasureArea,
+ * which counts pixels. See \ref imAnalyzeMeasureConvexHull for what that
+ * means when the two are combined.
+ * \par
  * See \ref im_process_ana.h
  * \ingroup process */
 
@@ -308,11 +322,19 @@ int imAnalyzeMeasureBoundingBox(const imImage* image, int region_count, int* xmi
  * Source image is IM_GRAY/IM_USHORT type (the result of \ref imAnalyzeFindRegions). \n
  * hull_area and hull_perim have size the number of regions; either may be NULL
  * and will then not be calculated. \n
- * Solidity, the usual measure of how concave a region is, is the region's own
- * area from \ref imAnalyzeMeasureArea divided by hull_area. Convexity is
- * hull_perim divided by the perimeter from \ref imAnalyzeMeasurePerimeter.
- * Neither is computed here because both are one division on numbers the caller
- * already has. \n
+ * Both are measured between pixel CENTRES, as every measurement in this group
+ * is: a solid n-by-m rectangle has a hull area of (n-1)(m-1), not n*m. This is
+ * the same convention \ref imAnalyzeMeasureCentroid uses -- a single pixel at
+ * (3,4) has its centroid at (3,4) -- and it differs by one from the pixel
+ * COUNT that \ref imAnalyzeMeasureArea reports. \n
+ * That matters for solidity, the usual measure of how concave a region is.
+ * The formula is the region's own area divided by hull_area, but the two are
+ * NOT in the same units, so the ratio runs slightly over 1 on a convex region
+ * and the more so the smaller it is -- a solid 8x8 block of 64 pixels has a
+ * hull of 49. It is not computed here for that reason as much as for being
+ * one division: the useful comparison is between regions of similar size in
+ * the same image, not against 1. Convexity, hull_perim divided by the
+ * perimeter from \ref imAnalyzeMeasurePerimeter, has the same caveat. \n
  * A region of fewer than three non-collinear pixels has a degenerate hull and
  * reports zero area.
  * Not using OpenMP when enabled.
@@ -332,6 +354,8 @@ int imAnalyzeMeasureConvexHull(const imImage* image, int region_count, double* h
  * of one short hull edge and says nothing about the shape's width. \n
  * The angles are in degrees in [0,180), measured anticlockwise from the x axis.
  * A diameter has no direction, so the range is half a turn, not a whole one. \n
+ * Measured between pixel centres, so a solid run of n pixels has a Feret
+ * diameter of n-1. \n
  * These differ from \ref imAnalyzeMeasurePrincipalAxis: the principal axes are
  * moments of the filled region and are pulled by where the mass sits, while
  * Feret diameters are extents of the outline and are decided by the two or

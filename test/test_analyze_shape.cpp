@@ -594,3 +594,92 @@ TEST_CASE("the shape measurements check their label image")
   imImageDestroy(label_image);
 }
 #endif
+
+TEST_CASE("a region count below the number of labels measures a prefix, not past the array")
+{
+  /* Every imAnalyzeMeasure* function indexes the caller's arrays by label-1,
+     and the label comes from the image rather than from region_count. The six
+     older measurements did not range-check that index: an image labelled up
+     to 3 measured with region_count 1 wrote to area[1] and area[2], off the
+     end of a one-element array. A heap corruption, silent, and reachable from
+     any binding that lets the caller pass the count -- which is all of them,
+     since it is a parameter.
+
+     The arrays here are deliberately exact-sized. Under ASan an over-write
+     lands in the redzone and is reported; without it the guard values below
+     are what notices.
+
+     imAnalyzeFindRegions numbers regions in raster order, so region 1 is the
+     top-left square and asking for one region asks for that one. */
+  imImage* binary = create(W, H, IM_BINARY, IM_BYTE);
+  memset(binary->data[0], 0, (size_t)binary->count);
+
+  imbyte* mask = (imbyte*)binary->data[0];
+  for (int y = 4; y < 12; y++)
+    for (int x = 4; x < 12; x++)
+      mask[y * W + x] = 1;
+  for (int y = 4; y < 12; y++)
+    for (int x = 20; x < 28; x++)
+      mask[y * W + x] = 1;
+  for (int y = 24; y < 32; y++)
+    for (int x = 4; x < 12; x++)
+      mask[y * W + x] = 1;
+
+  imImage* label_image = create(W, H, IM_GRAY, IM_USHORT);
+  int regions = 0;
+  REQUIRE(imAnalyzeFindRegions(binary, label_image, 8, 1, &regions) != 0);
+  REQUIRE(regions == 3);
+
+  SUBCASE("the measurements that predate the guard")
+  {
+    int area[1];
+    double perimarea[1], cx[1], cy[1], perim[1];
+
+    REQUIRE(imAnalyzeMeasureArea(label_image, area, 1) != 0);
+    CHECK(area[0] == 64);
+
+    REQUIRE(imAnalyzeMeasureCentroid(label_image, NULL, 1, cx, cy) != 0);
+    CHECK(cx[0] == doctest::Approx(7.5));
+    CHECK(cy[0] == doctest::Approx(7.5));
+
+    REQUIRE(imAnalyzeMeasurePerimeter(label_image, perim, 1) != 0);
+    CHECK(perim[0] > 0.0);
+
+    REQUIRE(imAnalyzeMeasurePerimArea(label_image, perimarea, 1) != 0);
+    CHECK(perimarea[0] > 0.0);
+
+    /* Holes takes three arrays and the same count. */
+    int hole_count[1], hole_area[1];
+    double hole_perim[1];
+    REQUIRE(imAnalyzeMeasureHoles(label_image, 8, 1, hole_count, hole_area, hole_perim) != 0);
+    CHECK(hole_count[0] == 0);
+
+    /* PrincipalAxis reads the centroids and writes four more arrays. Its
+       perimeter-walking helper indexes by label too, which is a separate
+       site from the moment accumulation. */
+    double major_slope[1], major_length[1], minor_slope[1], minor_length[1];
+    REQUIRE(imAnalyzeMeasurePrincipalAxis(label_image, NULL, NULL, NULL, 1,
+                                          major_slope, major_length,
+                                          minor_slope, minor_length) != 0);
+    CHECK(major_length[0] > 0.0);
+  }
+
+  SUBCASE("and the ones that always had it")
+  {
+    int xmin[1], xmax[1], ymin[1], ymax[1];
+    double hull_area[1], max_feret[1];
+
+    REQUIRE(imAnalyzeMeasureBoundingBox(label_image, 1, xmin, xmax, ymin, ymax) != 0);
+    CHECK(xmin[0] == 4);
+    CHECK(xmax[0] == 11);
+
+    REQUIRE(imAnalyzeMeasureConvexHull(label_image, 1, hull_area, NULL) != 0);
+    CHECK(hull_area[0] == doctest::Approx(49.0));
+
+    REQUIRE(imAnalyzeMeasureFeret(label_image, 1, max_feret, NULL, NULL, NULL) != 0);
+    CHECK(max_feret[0] == doctest::Approx(7.0 * sqrt(2.0)));
+  }
+
+  imImageDestroy(binary);
+  imImageDestroy(label_image);
+}

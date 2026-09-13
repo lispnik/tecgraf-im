@@ -267,7 +267,7 @@ int imProcessCanny(const imImage* src_image, imImage* dst_image, double stddev)
   int i;
   double gau[MAX_MASK_SIZE], dgau[MAX_MASK_SIZE];
 
-  int counter = imCounterBegin("Canny");
+  int counter = imProcessCounterBegin("Canny");
 
   imCounterTotal(counter, 3 * src_image->height + dst_image->height - 2, "Processing...");
 
@@ -290,7 +290,7 @@ int imProcessCanny(const imImage* src_image, imImage* dst_image, double stddev)
   if (!seperable_convolution(src_image, gau, width, smx, smy, counter))
   {
     free(smx[0]); free(smx);
-    imCounterEnd(counter);
+    imProcessCounterEnd(counter);
     return 0;
   }
 
@@ -302,7 +302,7 @@ int imProcessCanny(const imImage* src_image, imImage* dst_image, double stddev)
   {
     free(dx[0]); free(dx);
     free(smx[0]); free(smx);
-    imCounterEnd(counter);
+    imProcessCounterEnd(counter);
     return 0;
   }
   free(smx[0]); free(smx);
@@ -313,7 +313,7 @@ int imProcessCanny(const imImage* src_image, imImage* dst_image, double stddev)
     free(dx[0]); free(dx);
     free(dy[0]); free(dy);
     free(smy[0]); free(smy);
-    imCounterEnd(counter);
+    imProcessCounterEnd(counter);
     return 0;
   }
   free(smy[0]); free(smy);
@@ -326,14 +326,14 @@ int imProcessCanny(const imImage* src_image, imImage* dst_image, double stddev)
   {
     free(dx[0]); free(dx);
     free(dy[0]); free(dy);
-    imCounterEnd(counter);
+    imProcessCounterEnd(counter);
     return 0;
   }
 
   free(dx[0]); free(dx);
   free(dy[0]); free(dy);
 
-  imCounterEnd(counter);
+  imProcessCounterEnd(counter);
   return 1;
 }
 
