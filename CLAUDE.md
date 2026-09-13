@@ -191,9 +191,23 @@ Layered, with each layer a separate shared library so consumers link only what t
   way and ended the other freed a lock that was never allocated and the process
   died at address 0. `imAnalyzeFindRegions` and `imProcessCanny` both did, for
   as long as the library has had a counter, and neither was visible without a
-  callback attached — which no test had ever done. The lock is a named
-  `#pragma omp critical` now, so there is no per-counter state to mismatch and
+  callback attached — which no test had ever done. There is one lock for the
+  whole counter API now, so there is no per-counter state to mismatch and
   nothing in `libim_process` touches `imCounterSetUserData`.
+
+  It is an `omp_nest_lock_t` and that is not incidental: `imCounterInc` calls
+  the callback while holding it, and a callback may start another operation —
+  redrawing a preview is the obvious reason to. The old per-counter locks
+  allowed that because the nested call took a different one. A plain lock, or
+  a `#pragma omp critical`, would deadlock against itself.
+
+  **To reproduce the original crash, attach a counter callback and call one of
+  those two.** Nothing else does it — in particular *not* any consumer's
+  `--verbose` flag by itself: in the downstream CFFI bindings it is `im process
+  --verbose` that installs a callback, while `im analyze --verbose` never did,
+  so the obvious-looking reproducer is the wrong one. `test/test_counter_omp.cpp`
+  is the right one, and it segfaults three cases and fails a fourth if the fix
+  is reverted.
 - **`libim_jp2`** / **`libim_fftw3`** — optional single-file add-ons over jasper and
   fftw3.
 - **`libim_heif`** (`src/im_format_heif.cpp`) — HEIC and AVIF over libheif, the newest
