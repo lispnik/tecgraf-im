@@ -202,12 +202,12 @@ Layered, with each layer a separate shared library so consumers link only what t
   a `#pragma omp critical`, would deadlock against itself.
 
   **To reproduce the original crash, attach a counter callback and call one of
-  those two.** Nothing else does it — in particular *not* any consumer's
-  `--verbose` flag by itself: in the downstream CFFI bindings it is `im process
-  --verbose` that installs a callback, while `im analyze --verbose` never did,
-  so the obvious-looking reproducer is the wrong one. `test/test_counter_omp.cpp`
-  is the right one, and it segfaults three cases and fails a fourth if the fix
-  is reverted.
+  those two.** That is the whole condition, and nothing else implies it — a
+  consumer's `--verbose` flag does not, since whether it reaches this library
+  depends on which of that consumer's commands installs a callback, and that
+  changes release to release. Reason about the callback, not about flags.
+  `test/test_counter_omp.cpp` is the reproducer: it segfaults three cases and
+  fails a fourth if the fix is reverted.
 - **`libim_jp2`** / **`libim_fftw3`** — optional single-file add-ons over jasper and
   fftw3.
 - **`libim_heif`** (`src/im_format_heif.cpp`) — HEIC and AVIF over libheif, the newest
