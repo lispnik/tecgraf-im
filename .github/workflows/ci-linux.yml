@@ -26,6 +26,10 @@ jobs:
         # heif_brand2_avif (added in 1.16) and does not compile. The add-on is
         # optional, so that job simply builds without it.
         #
+        # JPEG XL likewise: 22.04 has no libjxl package at all, so jxl is OFF
+        # there and the package is installed only where it is ON. OpenEXR is
+        # packaged on 22.04 but at 2.5, and the driver needs 3.1+, so the same.
+        #
         # '24.04-arm' selects GitHub's arm64 Ubuntu runner: runs-on already
         # interpolates ubuntu-${{ matrix.os }}, so the label falls out of the
         # same string, and every apt package named below is arch-independent.
@@ -37,10 +41,16 @@ jobs:
         include:
           - os: '22.04'
             heif: 'OFF'
+            jxl: 'OFF'
+            exr: 'OFF'
           - os: '24.04'
             heif: 'ON'
+            jxl: 'ON'
+            exr: 'ON'
           - os: '24.04-arm'
             heif: 'ON'
+            jxl: 'ON'
+            exr: 'ON'
 
     steps:
       - name: Check out source
@@ -55,7 +65,7 @@ jobs:
             libexif-dev liblzf-dev liblz4-dev \
             libfftw3-dev libomp-dev \
             liblua5.4-dev lua5.4 \
-            libheif-dev
+            libheif-dev libwebp-dev libcfitsio-dev libraw-dev
           # libjasper-dev was dropped from Ubuntu after 18.04 due to
           # unfixed CVEs; libim_jp2 can't be built from system libs here.
 
@@ -79,13 +89,27 @@ jobs:
             libheif-plugin-libde265 libheif-plugin-x265 \
             libheif-plugin-aomdec libheif-plugin-aomenc
 
+      - name: Install libjxl
+        # Same reasoning as the plugins above: installed outright where the
+        # matrix wants it, so a renamed package fails the job rather than
+        # quietly configuring without JPEG XL.
+        if: matrix.jxl == 'ON'
+        run: sudo apt-get install -y --no-install-recommends libjxl-dev
+
+      - name: Install OpenEXR
+        if: matrix.exr == 'ON'
+        run: sudo apt-get install -y --no-install-recommends libopenexr-dev
+
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_JP2=OFF \
-            -DIM_BUILD_HEIF=${{ matrix.heif }}
+            -DIM_BUILD_HEIF=${{ matrix.heif }} \
+            -DIM_BUILD_JXL=${{ matrix.jxl }} \
+            -DIM_BUILD_EXR=${{ matrix.exr }} \
+            -DIM_BUILD_CAMRAW=ON
 
       - name: Build
         run: cmake --build build -j $(nproc)
@@ -153,7 +177,9 @@ jobs:
             liblua5.4-dev lua5.4 \
             libheif-dev \
             libheif-plugin-libde265 libheif-plugin-x265 \
-            libheif-plugin-aomdec libheif-plugin-aomenc
+            libheif-plugin-aomdec libheif-plugin-aomenc \
+            libwebp-dev libjxl-dev libopenexr-dev \
+            libcfitsio-dev libraw-dev
 
       - name: Configure
         # Debug rather than -UNDEBUG on top of Release: the point is the
@@ -163,7 +189,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DIM_BUILD_CAPTURE=ON \
             -DIM_BUILD_JP2=OFF \
-            -DIM_BUILD_HEIF=ON
+            -DIM_BUILD_HEIF=ON \
+            -DIM_BUILD_CAMRAW=ON
 
       - name: Build
         run: cmake --build build -j $(nproc)

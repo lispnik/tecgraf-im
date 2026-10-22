@@ -13,6 +13,8 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/doctest/doctest.cmake)
 
 add_executable(im_tests
     test_main.cpp
+    test_hdr.cpp
+    test_qoi.cpp
     test_attrib.cpp
     test_bin.cpp
     test_binfile.cpp
@@ -57,6 +59,31 @@ endif()
 if(TARGET im_heif)
     target_sources(im_tests PRIVATE test_heif.cpp)
     target_link_libraries(im_tests PRIVATE im_heif)
+endif()
+
+if(TARGET im_webp)
+    target_sources(im_tests PRIVATE test_webp.cpp)
+    target_link_libraries(im_tests PRIVATE im_webp)
+endif()
+
+if(TARGET im_jxl)
+    target_sources(im_tests PRIVATE test_jxl.cpp)
+    target_link_libraries(im_tests PRIVATE im_jxl)
+endif()
+
+if(TARGET im_exr)
+    target_sources(im_tests PRIVATE test_exr.cpp)
+    target_link_libraries(im_tests PRIVATE im_exr)
+endif()
+
+if(TARGET im_fits)
+    target_sources(im_tests PRIVATE test_fits.cpp)
+    target_link_libraries(im_tests PRIVATE im_fits)
+endif()
+
+if(TARGET im_camraw)
+    target_sources(im_tests PRIVATE test_camraw.cpp)
+    target_link_libraries(im_tests PRIVATE im_camraw)
 endif()
 
 # Likewise for libim_process (IM_BUILD_PROCESS). Deliberately the plain
@@ -217,7 +244,8 @@ if(IM_BUILD_LUA)
     if(IM_LUA_INTERPRETER)
         # Modules beyond core imlua exist only when their add-on was built.
         set(_lua_modules "")
-        foreach(m imlua_process imlua_jp2 imlua_fftw3 imlua_heif imlua_capture)
+        foreach(m imlua_process imlua_jp2 imlua_fftw3 imlua_heif imlua_webp
+                  imlua_jxl imlua_exr imlua_fits imlua_camraw imlua_capture)
             if(TARGET ${m})
                 list(APPEND _lua_modules ${m})
             endif()

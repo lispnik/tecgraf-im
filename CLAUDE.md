@@ -27,9 +27,12 @@ cmake --build build --target im_process
 ```
 
 Dependency install commands per platform are in `BUILDING.md`. Build options:
-`IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_FFTW3` and
-`IM_BUILD_LUA` (default ON), `IM_BUILD_JP2`, `IM_BUILD_HEIF` and
-`IM_BUILD_CAPTURE` (default OFF, see below), `IM_BUILD_AVI` and `IM_BUILD_WMV` (default OFF,
+`IM_BUILD_PROCESS`, `IM_BUILD_PROCESS_OMP`, `IM_BUILD_FFTW3`,
+`IM_BUILD_WEBP`, `IM_BUILD_JXL`, `IM_BUILD_EXR`, `IM_BUILD_FITS` and
+`IM_BUILD_LUA` (default ON; Ubuntu 22.04 has no libjxl and only OpenEXR 2.x, so
+its CI job passes `-DIM_BUILD_JXL=OFF -DIM_BUILD_EXR=OFF`), `IM_BUILD_JP2`,
+`IM_BUILD_HEIF`, `IM_BUILD_CAMRAW` and `IM_BUILD_CAPTURE` (default OFF, see
+below; CI turns CAMRAW on everywhere), `IM_BUILD_AVI` and `IM_BUILD_WMV` (default OFF,
 Windows-only, and each additionally gated on a `check_include_file_cxx` probe
 for `vfw.h` / `wmsdk.h` — the WMV one needs the separately-distributed Windows
 Media Format 11 SDK and is not expected to be found on CI), plus
@@ -115,7 +118,9 @@ supported on this platform" before a single test runs. Locally use
 `ASAN_OPTIONS=abort_on_error=1:strict_string_checks=1`; on macOS use `leaks --atExit --
 ./lib/im_tests` for the leak check instead.
 
-`test/fixtures/` holds two small HEIC/AVIF files produced by libheif's `heif-enc`. They
+`test/fixtures/` holds two small HEIC/AVIF files produced by libheif's `heif-enc`,
+plus WebP and JPEG XL files from `cwebp`/`img2webp`/`cjxl`, and EXR, HDR,
+QOI, FITS and DNG files from the two `make_*_fixtures.py` scripts. They
 exist because a round-trip through one driver passes just as happily when the read and
 write paths are wrong in matching ways — decoding a file this tree did not write is the
 only check that catches that.
@@ -233,6 +238,51 @@ Layered, with each layer a separate shared library so consumers link only what t
   need no camera permission. How many a device has is hardware-dependent — a
   USB camera reports nine of twenty, a built-in Mac camera reports none — so an
   empty `imVideoCaptureGetAttributeList` is normal, not broken.
+- **`libim_webp`** / **`libim_jxl`** (`src/im_format_webp.cpp`,
+  `src/im_format_jxl.cpp`) — WebP and JPEG XL, built the same way as
+  `libim_heif` but defaulting **on**, since libwebp and libjxl are BSD with
+  nothing GPL behind them. Both libraries work on whole files in memory, so
+  the drivers read the file in at `Open` (after checking the signature, since
+  `imFileOpen` offers every file to every driver) and encode the whole image
+  in `WriteImageData`. libjxl's floor is 0.7 because Ubuntu 24.04 ships it;
+  the top of `im_format_jxl.cpp` lists the newer APIs avoided for that reason.
+  Their fixtures in `test/fixtures/` come from `cwebp`, `img2webp` and `cjxl`.
+- **`libim_exr`** (`src/im_format_exr.cpp`) — OpenEXR over its C++ API, found
+  with `find_package(OpenEXR 3.1 CONFIG)`. OpenEXR throws on every error, so
+  each entry point catches everything and maps it to an IM error code; nothing
+  may unwind into IM. It converts pixel types on read but **not on write**, so
+  `Half=1` converts to `half` in the driver.
+
+  **Radiance HDR** (`src/im_format_hdr.cpp`) is the opposite case: built into
+  `libim`, no dependency, registered in `im_format_all.cpp` and declared in
+  `include/im_format_all.h` — which is Latin-1, so a UTF-8-assuming grep
+  silently skips it.
+
+  One trap both met: `imFileOpen` calls `imFileClear` *after* the driver's
+  `Open`, zeroing `width` and `height`. A driver that parses the size in
+  `Open` must keep it in its own fields and set `width`/`height` in
+  `ReadImageInfo`, or every load fails with `IM_ERR_DATA`.
+
+  **QOI** (`src/im_format_qoi.cpp`) is the same shape as HDR: built in,
+  written from the spec, no dependency. Its runs, colour cache and previous
+  pixel carry across scanlines, so that state lives in the driver.
+- **`libim_fits`** (`src/im_format_fits.cpp`) — cfitsio. Opens with
+  `fits_open_diskfile`/`fits_create_diskfile`, never the plain calls, which
+  parse cfitsio's extended file-name syntax (brackets, `!`, `mem://`).
+  `fits_get_compression_type` reports the *write* setting, not the HDU's;
+  the stored codec is the `ZCMPTYPE` keyword. FITS is bottom-up and planar,
+  IM's own layout, so it uses neither `IM_TOPDOWN` nor `IM_PACKED`.
+- **`libim_camraw`** (`src/im_format_camraw.cpp`) — LibRaw, read-only,
+  default **off** (LGPL). Named `CAMRAW` because IM's `RAW` driver already
+  means headerless sample data. Demosaicing runs in `ReadImageInfo`, since
+  its output decides the size.
+
+  The fixtures come from `test/fixtures/make_float_fixtures.py` and
+  `make_qoi_fits_dng_fixtures.py`, which document the pixel formulas the
+  tests recompute. The DNG is synthetic -- three Bayer bands, red, green and
+  blue -- because no small, freely licensed real camera file exists. Remember IM stores rows
+  bottom-up: row 0 in memory is the bottom of the picture, so a test comparing
+  against a file's top row has to index the last row.
 - **`imlua*`** (`src/lua5/`) — Lua bindings, one module per native library, built with
   `PREFIX ""` so they load as `imlua.so` not `libimlua.so`.
 
@@ -257,10 +307,12 @@ its declaration and the debug build rejected it; the out-of-bounds read in
 the line; and a test that trips an `assert` passes in release and aborts the suite in
 debug, which is what the `#ifdef NDEBUG` convention above exists for.
 
-`-Wall -Wextra` is set per-source, not on the tree — the legacy sources would drown. Two
-lists carry it: `src/im_capture_avf.mm` (see the comment beside it in `CMakeLists.txt`),
-and the process sources this fork added — `im_decorrelate`, `im_denoise`, `im_deconvolve`,
-`im_watershed` and `im_analyze_shape`. New self-contained files are worth adding to the
+`-Wall -Wextra` is set per-source, not on the tree — the legacy sources would drown.
+It is on `src/im_capture_avf.mm` (see the comment beside it in `CMakeLists.txt`), on
+every format driver this fork added (`im_format_{webp,jxl,exr,hdr,qoi,fits,camraw}.cpp`),
+and on the process sources this fork
+added — `im_decorrelate`, `im_denoise`, `im_deconvolve`, `im_watershed` and
+`im_analyze_shape`. New self-contained files are worth adding to the
 second; it caught a dead function the day it appeared.
 
 ### Two things that bite

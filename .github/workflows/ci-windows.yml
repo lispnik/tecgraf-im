@@ -29,7 +29,7 @@ env:
   # permitting that by default and broke the job outright. Taking it from
   # vcpkg, which this job already runs for everything else, removes the
   # second package manager and the unverified download with it.
-  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua pkgconf "libheif[core,hevc,aom]"
+  VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 lua pkgconf "libheif[core,hevc,aom]" libwebp libjxl openexr cfitsio libraw
 
 jobs:
   build:
@@ -111,6 +111,7 @@ jobs:
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_CAPTURE=ON `
             -DIM_BUILD_HEIF=ON `
+            -DIM_BUILD_CAMRAW=ON `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DPKG_CONFIG_EXECUTABLE="$pkgconf" `
             -DVCPKG_TARGET_TRIPLET=x64-windows

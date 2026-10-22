@@ -24,6 +24,17 @@
 *.gif   binary
 *.heic  binary
 *.avif  binary
+*.webp  binary
+*.jxl   binary
+*.exr   binary
+*.qoi   binary
+*.dng   binary
+# FITS headers are ASCII cards with no line endings at all, so the risk is
+# smaller, but the data that follows is binary.
+*.fits  binary
+# A Radiance header is plain text ending in LFs; CRLF would end it in the
+# wrong place, the same failure as max5.pgm.
+*.hdr   binary
 *.pdf   binary
 *.zip   binary
 *.gz    binary

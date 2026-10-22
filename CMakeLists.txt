@@ -92,6 +92,27 @@ option(IM_BUILD_JP2         "Build libim_jp2 (JPEG 2000 add-on via libjasper)"  
 # MIT terms for anyone redistributing. Opt in knowingly. See BUILDING.md.
 option(IM_BUILD_HEIF        "Build libim_heif (HEIC/AVIF add-on via libheif)"    OFF)
 
+# WebP and JPEG XL default ON: both libraries are BSD-licensed with no GPL
+# codec behind them, so unlike HEIF there is nothing to opt into knowingly.
+# libjxl is the one that is not everywhere -- Ubuntu 22.04 does not package
+# it -- so turn IM_BUILD_JXL off there.
+option(IM_BUILD_WEBP        "Build libim_webp (WebP add-on via libwebp)"         ON)
+option(IM_BUILD_JXL         "Build libim_jxl (JPEG XL add-on via libjxl)"        ON)
+
+# OpenEXR is BSD too. Its floor is 3.1 (Ubuntu 24.04); 22.04 ships 2.5, whose
+# headers and library names differ, so turn IM_BUILD_EXR off there.
+option(IM_BUILD_EXR         "Build libim_exr (OpenEXR add-on)"                   ON)
+
+# FITS over NASA's cfitsio, whose licence is permissive, and which every
+# platform here packages -- Ubuntu 22.04 included.
+option(IM_BUILD_FITS        "Build libim_fits (FITS add-on via cfitsio)"         ON)
+
+# Camera raw over LibRaw, default OFF. LibRaw is LGPL-2.1 or CDDL-1.0: linking
+# it dynamically leaves IM's MIT terms alone, but a redistributor still takes
+# on the LGPL's obligations for the library itself, so it is opted into
+# rather than shipped by default. See BUILDING.md.
+option(IM_BUILD_CAMRAW      "Build libim_camraw (camera raw add-on via LibRaw)"  OFF)
+
 # Also default OFF, for a different reason: only macOS has a real backend. On
 # every other platform this builds a stub that reports no capture devices, so
 # turning it on elsewhere gets you a library that links but never sees a
@@ -192,6 +213,7 @@ set(IM_SOURCES
     src/im_counter.cpp       src/im_str.cpp         src/im_convertcolor.cpp
     src/im_fileraw.cpp       src/im_format_krn.cpp  src/im_compress.cpp
     src/im_file.cpp          src/im_old.cpp         src/im_format_pfm.cpp
+    src/im_format_hdr.cpp    src/im_format_qoi.cpp
     src/im_format_tiff.cpp   src/im_format_png.cpp  src/im_format_jpeg.cpp
 )
 
@@ -264,6 +286,8 @@ if(NOT MSVC)
         src/process/im_deconvolve.cpp
         src/process/im_watershed.cpp
         src/process/im_analyze_shape.cpp
+        src/im_format_hdr.cpp
+        src/im_format_qoi.cpp
         PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 endif()
 
@@ -365,6 +389,104 @@ if(IM_BUILD_HEIF)
     im_add_def_file(im_heif "${CMAKE_SOURCE_DIR}/src/im_heif.def")
     target_include_directories(im_heif PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_link_libraries(im_heif PRIVATE im PkgConfig::LIBHEIF)
+endif()
+
+# ----------------------------------------------------------------------
+# libim_webp (WebP via libwebp) and libim_jxl (JPEG XL via libjxl)
+# ----------------------------------------------------------------------
+
+# Both floors are the oldest release a CI job builds against, the same rule
+# as libheif above: libwebp 1.2 is Ubuntu 22.04's, libjxl 0.7 is 24.04's.
+# The drivers need nothing that recent from libwebp (WebPAnimDecoder and the
+# "exact" option are 0.5), so lowering that one is safe if a job tests it.
+# libjxl's is real -- see the note at the top of im_format_jxl.cpp.
+#
+# Both are new self-contained files, so they get -Wall -Wextra like the
+# process sources above.
+
+if(IM_BUILD_WEBP)
+    # libwebpdemux is a separate library in every distribution of libwebp,
+    # and the animated-file path needs it.
+    pkg_check_modules(LIBWEBP REQUIRED IMPORTED_TARGET libwebp>=1.2 libwebpdemux>=1.2)
+
+    add_library(im_webp SHARED src/im_format_webp.cpp)
+    im_add_def_file(im_webp "${CMAKE_SOURCE_DIR}/src/im_webp.def")
+    target_include_directories(im_webp PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_webp PRIVATE im PkgConfig::LIBWEBP)
+    if(NOT MSVC)
+        set_source_files_properties(src/im_format_webp.cpp
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+    endif()
+endif()
+
+if(IM_BUILD_JXL)
+    pkg_check_modules(LIBJXL REQUIRED IMPORTED_TARGET libjxl>=0.7 libjxl_threads>=0.7)
+
+    add_library(im_jxl SHARED src/im_format_jxl.cpp)
+    im_add_def_file(im_jxl "${CMAKE_SOURCE_DIR}/src/im_jxl.def")
+    target_include_directories(im_jxl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_jxl PRIVATE im PkgConfig::LIBJXL)
+    if(NOT MSVC)
+        set_source_files_properties(src/im_format_jxl.cpp
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+    endif()
+endif()
+
+# ----------------------------------------------------------------------
+# libim_exr (OpenEXR)
+# ----------------------------------------------------------------------
+
+if(IM_BUILD_EXR)
+    # OpenEXR 3 installs a CMake package everywhere this builds -- Homebrew,
+    # Ubuntu 24.04's libopenexr-dev and vcpkg -- which also brings Imath along
+    # as a dependency, so there is no pkg-config detour. 3.1 is the floor
+    # because it is Ubuntu 24.04's; the 2.x series spelled the targets and
+    # include directories differently and is not supported.
+    find_package(OpenEXR 3.1 CONFIG REQUIRED)
+
+    add_library(im_exr SHARED src/im_format_exr.cpp)
+    im_add_def_file(im_exr "${CMAKE_SOURCE_DIR}/src/im_exr.def")
+    target_include_directories(im_exr PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_exr PRIVATE im OpenEXR::OpenEXR)
+    if(NOT MSVC)
+        set_source_files_properties(src/im_format_exr.cpp
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+    endif()
+endif()
+
+# ----------------------------------------------------------------------
+# libim_fits (FITS via cfitsio) and libim_camraw (camera raw via LibRaw)
+# ----------------------------------------------------------------------
+
+# Floors as elsewhere: the oldest release a CI job builds against, which for
+# both is Ubuntu 22.04's (cfitsio 4.0, LibRaw 0.20).
+
+if(IM_BUILD_FITS)
+    pkg_check_modules(CFITSIO REQUIRED IMPORTED_TARGET cfitsio>=4.0)
+
+    add_library(im_fits SHARED src/im_format_fits.cpp)
+    im_add_def_file(im_fits "${CMAKE_SOURCE_DIR}/src/im_fits.def")
+    target_include_directories(im_fits PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_fits PRIVATE im PkgConfig::CFITSIO)
+    if(NOT MSVC)
+        set_source_files_properties(src/im_format_fits.cpp
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+    endif()
+endif()
+
+if(IM_BUILD_CAMRAW)
+    # libraw_r, the reentrant build, rather than libraw: two threads each
+    # opening a raw file must not share LibRaw's internal state.
+    pkg_check_modules(LIBRAW REQUIRED IMPORTED_TARGET libraw_r>=0.20)
+
+    add_library(im_camraw SHARED src/im_format_camraw.cpp)
+    im_add_def_file(im_camraw "${CMAKE_SOURCE_DIR}/src/im_camraw.def")
+    target_include_directories(im_camraw PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(im_camraw PRIVATE im PkgConfig::LIBRAW)
+    if(NOT MSVC)
+        set_source_files_properties(src/im_format_camraw.cpp
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+    endif()
 endif()
 
 # ----------------------------------------------------------------------
@@ -605,6 +727,17 @@ if(IM_BUILD_LUA)
         set_target_properties(imlua_heif PROPERTIES PREFIX "")
     endif()
 
+    foreach(_fmt webp jxl exr fits camraw)
+        if(TARGET im_${_fmt})
+            add_library(imlua_${_fmt} SHARED src/lua5/imlua_${_fmt}.c)
+            im_add_def_file(imlua_${_fmt} "${CMAKE_SOURCE_DIR}/src/lua5/imlua_${_fmt}.def")
+            target_include_directories(imlua_${_fmt} PRIVATE ${IMLUA_INCLUDE_DIRS})
+            target_compile_definitions(imlua_${_fmt} PRIVATE ${IMLUA_DEFS})
+            target_link_libraries(imlua_${_fmt} PRIVATE im im_${_fmt} imlua ${LUA_LIBRARIES})
+            set_target_properties(imlua_${_fmt} PROPERTIES PREFIX "")
+        endif()
+    endforeach()
+
     if(TARGET im_capture)
         add_library(imlua_capture SHARED src/lua5/imlua_capture.c)
         im_add_def_file(imlua_capture "${CMAKE_SOURCE_DIR}/src/lua5/imlua_capture.def")
@@ -630,9 +763,11 @@ endif()
 
 include(GNUInstallDirs)
 set(_im_targets im)
-foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif im_capture
-                   im_avi im_wmv
-                   imlua imlua_process imlua_jp2 imlua_fftw3 imlua_heif imlua_capture)
+foreach(t IN ITEMS im_process im_process_omp im_jp2 im_fftw3 im_heif im_webp
+                   im_jxl im_exr im_fits im_camraw im_capture im_avi im_wmv
+                   imlua imlua_process imlua_jp2 imlua_fftw3 imlua_heif
+                   imlua_webp imlua_jxl imlua_exr imlua_fits imlua_camraw
+                   imlua_capture)
     if(TARGET ${t})
         list(APPEND _im_targets ${t})
     endif()
@@ -688,6 +823,11 @@ message(STATUS "  libim_process_omp   ${IM_BUILD_PROCESS_OMP}")
 message(STATUS "  libim_jp2           ${IM_BUILD_JP2}")
 message(STATUS "  libim_fftw3         ${IM_BUILD_FFTW3}")
 message(STATUS "  libim_heif          ${IM_BUILD_HEIF}")
+message(STATUS "  libim_webp          ${IM_BUILD_WEBP}")
+message(STATUS "  libim_jxl           ${IM_BUILD_JXL}")
+message(STATUS "  libim_exr           ${IM_BUILD_EXR}")
+message(STATUS "  libim_fits          ${IM_BUILD_FITS}")
+message(STATUS "  libim_camraw        ${IM_BUILD_CAMRAW}")
 # Report whether the target actually exists, not just what was asked for:
 # both of these are silently skipped when their SDK header is missing, and
 # "ON" against a library that was never built is the more misleading answer.

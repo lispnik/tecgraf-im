@@ -28,6 +28,8 @@ void imFormatRegisterInternal(void)
   imFormatRegisterICO();
   imFormatRegisterPNM();
   imFormatRegisterPFM();
+  imFormatRegisterHDR();
+  imFormatRegisterQOI();
   imFormatRegisterKRN();
   imFormatRegisterLED();
   imFormatRegisterSGI();

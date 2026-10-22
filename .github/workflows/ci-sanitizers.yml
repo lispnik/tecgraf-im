@@ -46,7 +46,9 @@ jobs:
             cmake ninja-build pkg-config \
             libtiff-dev libjpeg-dev libpng-dev \
             libexif-dev liblzf-dev liblz4-dev \
-            libfftw3-dev libheif-dev
+            libfftw3-dev libheif-dev \
+            libwebp-dev libjxl-dev libopenexr-dev \
+            libcfitsio-dev libraw-dev
 
       - name: Install libheif codec plugins
         # See the note in ci-linux.yml: on 24.04 the codecs are separate
@@ -75,7 +77,8 @@ jobs:
             -DIM_BUILD_JP2=OFF \
             -DIM_BUILD_LUA=OFF \
             -DIM_BUILD_PROCESS_OMP=OFF \
-            -DIM_BUILD_HEIF=ON
+            -DIM_BUILD_HEIF=ON \
+            -DIM_BUILD_CAMRAW=ON
 
       - name: Build
         run: cmake --build build -j $(nproc)

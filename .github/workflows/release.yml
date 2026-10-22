@@ -74,7 +74,7 @@ jobs:
       # vcpkg ports, kept identical to ci-windows.yml. liblzf is absent on
       # purpose: no port exists and the CMakeLists falls back to the bundled
       # src/liblzf/ tree.
-      VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 pkgconf "libheif[core,hevc,aom]"
+      VCPKG_DEPS: tiff libjpeg-turbo libpng libexif lz4 jasper fftw3 pkgconf "libheif[core,hevc,aom]" libwebp libjxl openexr cfitsio
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
       VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}/vcpkg-binary-cache,readwrite'
 
@@ -102,7 +102,7 @@ jobs:
             libtiff-dev libjpeg-dev libpng-dev \
             libexif-dev liblzf-dev liblz4-dev \
             libfftw3-dev libomp-dev \
-            libheif-dev
+            libheif-dev libwebp-dev libjxl-dev libopenexr-dev libcfitsio-dev
           # libjasper-dev was dropped from Ubuntu after 18.04 over unfixed
           # CVEs, so libim_jp2 cannot be built from system libraries here.
 
@@ -120,7 +120,7 @@ jobs:
           brew install --quiet \
             cmake ninja pkg-config \
             libtiff jpeg-turbo libpng libexif liblzf lz4 \
-            jasper fftw libomp libheif
+            jasper fftw libomp libheif webp jpeg-xl openexr cfitsio
 
       # -- Windows ----------------------------------------------------------
       - name: Activate MSVC build environment (Windows)

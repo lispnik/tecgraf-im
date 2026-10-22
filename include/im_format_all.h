@@ -516,6 +516,78 @@ Internally the lines are arranged from bottom to top.
 void imFormatRegisterPFM(void);
 
 
+/** \defgroup hdr HDR - Radiance RGBE Image Format
+* \section Description
+*
+* \par
+* Greg Ward's RGBE format from the Radiance lighting simulation system.
+* Each pixel is three 8 bit mantissas sharing an 8 bit exponent. \n
+* https://www.radiance-online.org \n
+* \par
+* Internal Implementation.
+*
+* \section Features
+*
+\verbatim
+Data Types: Float
+Color Spaces: RGB and XYZ (Gray is written as RGB)
+Compressions:
+  RLE  - Radiance's per-component run length [default]
+  NONE - flat 4 byte pixels
+  (Old-style RLE files are read too.)
+
+No alpha channel.
+Only one image.
+Internally the components are always packed.
+Internally the lines are arranged from top down to bottom (bottom up files
+  are read too; mirrored and transposed orientations are refused).
+
+Attributes:
+  Exposure IM_FLOAT (1) [read only, the product of the file's EXPOSURE= lines;
+                         absent when 1. Pixels are not rescaled by it.]
+
+Comments:
+  About 1% precision across a dynamic range of 2^-128 to 2^127.
+  Negative values and NaN are written as 0; values past the largest
+  exponent are clamped to it.
+\endverbatim
+* \ingroup format */
+void imFormatRegisterHDR(void);
+
+
+/** \defgroup qoi QOI - Quite OK Image Format
+* \section Description
+*
+* \par
+* Dominic Szablewski's lossless format, designed to be simple and fast. \n
+* https://qoiformat.org \n
+* \par
+* Internal Implementation, written from the specification.
+*
+* \section Features
+*
+\verbatim
+Data Types: Byte
+Color Spaces: RGB (Gray and Binary are written as RGB)
+Compressions:
+  QOI - the format's only coding [default]
+
+Can have an alpha channel.
+Only one image.
+Internally the components are always packed.
+Internally the lines are arranged from top down to bottom.
+
+Attributes:
+  QOIColorSpace IM_BYTE (1) [read only, 0 = sRGB with linear alpha, 1 = all
+                             linear. Informational: pixels decode the same.]
+
+Comments:
+  Lossless. Files are written with color space 0.
+\endverbatim
+* \ingroup format */
+void imFormatRegisterQOI(void);
+
+
 /** \defgroup ico ICO - Windows Icon
  * \section Description
  *

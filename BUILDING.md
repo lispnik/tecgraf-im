@@ -8,7 +8,7 @@ fallback. The build is driven by CMake (3.20 or newer).
 ```sh
 brew install cmake ninja pkg-config \
              libtiff jpeg-turbo libpng libexif liblzf lz4 \
-             jasper fftw libomp
+             jasper fftw libomp webp jpeg-xl openexr cfitsio
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
@@ -24,7 +24,8 @@ runtime (SBCL/CFFI, Python ctypes, etc.) without an embedded rpath.
 sudo apt-get install cmake ninja-build pkg-config \
                      libtiff-dev libjpeg-dev libpng-dev \
                      libexif-dev liblzf-dev liblz4-dev \
-                     libfftw3-dev libomp-dev
+                     libfftw3-dev libomp-dev \
+                     libwebp-dev libjxl-dev libopenexr-dev libcfitsio-dev
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_JP2=OFF
 cmake --build build -j
@@ -35,10 +36,13 @@ unfixed CVEs. The JP2 add-on defaults to OFF for that reason, so nothing
 needs to be passed
 on modern Linux distros. Install jasper from source if you need it.
 
+Ubuntu 22.04 and older do not package libjxl at all, and their OpenEXR is 2.x
+where the driver needs 3.1; add `-DIM_BUILD_JXL=OFF -DIM_BUILD_EXR=OFF` there.
+
 ## Windows (vcpkg)
 
 ```cmd
-vcpkg install tiff jpeg-turbo libpng libexif liblzf lz4 jasper fftw3
+vcpkg install tiff jpeg-turbo libpng libexif liblzf lz4 jasper fftw3 libwebp libjxl openexr cfitsio
 
 cmake -S . -B build -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
@@ -59,6 +63,11 @@ lookups; no other configuration is required.
 | `IM_BUILD_FFTW3`       | ON      | FFTW3-backed FFT add-on              |
 | `IM_BUILD_LUA`         | ON      | Lua 5.x bindings (imlua + add-ons)   |
 | `IM_BUILD_HEIF`        | OFF     | HEIC/AVIF support (needs libheif)    |
+| `IM_BUILD_WEBP`        | ON      | WebP support (needs libwebp)         |
+| `IM_BUILD_JXL`         | ON      | JPEG XL support (needs libjxl)       |
+| `IM_BUILD_EXR`         | ON      | OpenEXR support (needs OpenEXR 3.1+) |
+| `IM_BUILD_FITS`        | ON      | FITS support (needs cfitsio)         |
+| `IM_BUILD_CAMRAW`      | OFF     | Camera raw, read only (needs LibRaw) |
 | `IM_BUILD_CAPTURE`     | OFF     | Video capture (real only on macOS)   |
 | `IM_BUILD_AVI`         | OFF     | AVI driver (Windows + `vfw.h`)       |
 | `IM_BUILD_WMV`         | OFF     | WMV driver (Windows + `wmsdk.h`)     |
@@ -151,6 +160,84 @@ which has no such constraint. Decoding HEIC needs only the LGPL libde265.
 Separately, HEVC is covered by patent pools (MPEG LA / Access Advance) that may
 require a licence for commercial distribution regardless of software licence.
 AVIF is royalty free.
+
+## WebP and JPEG XL
+
+`libim_webp` adds the `WEBP` driver (*.webp) over libwebp 1.2+, and
+`libim_jxl` the `JXL` driver (*.jxl) over libjxl 0.7+. Both libraries are
+BSD-licensed with no GPL codec behind them, which is why these default ON
+where HEIF defaults OFF. Register them with `imFormatRegisterWebP()` and
+`imFormatRegisterJXL()`, or `require"imlua_webp"` / `require"imlua_jxl"`.
+
+What each carries:
+
+| | WebP | JPEG XL |
+|---|---|---|
+| Data types | byte | byte, ushort, float |
+| Colour | RGB (gray is stored as RGB) | gray, RGB |
+| Alpha | yes | yes |
+| Lossless | `VP8L` compression, or `Lossless=1` | `Lossless=1`, exact for every type |
+| Multiple images | animated files read frame by frame | first frame only |
+
+`Quality` (0-100) sets the lossy level for both: cwebp's scale for WebP
+(default 75), and cjxl's `-q` scale for JPEG XL (default 90, Butteraugli
+distance 1.0). The headers, `include/im_format_webp.h` and
+`include/im_format_jxl.h`, have the detail.
+
+## OpenEXR and Radiance HDR
+
+Two floating point formats, for images whose values do not stop at 1.
+
+`libim_exr` adds the `EXR` driver (*.exr) over OpenEXR 3.1+, found through
+its CMake package. Register it with `imFormatRegisterEXR()` or
+`require"imlua_exr"`. It reads half, float and uint channels into `IM_FLOAT`
+-- RGB, luminance, luminance/chroma, a named layer, or a lone channel, plus
+alpha -- over the data window, tiled or scanline. It writes float by default,
+which is exact under the lossless compressions, or half with `Half=1`.
+
+`HDR` (*.hdr) is built into `libim` with no dependency: Radiance RGBE, the
+format light probes and environment maps usually come in. It reads and writes
+`IM_FLOAT` RGB and XYZ, run-length coded or flat, at RGBE's precision of about
+1 part in 256 of each pixel's brightest channel.
+
+## QOI
+
+`QOI` (*.qoi) is built into `libim`, written from the one-page specification
+with no dependency: lossless 8 bit RGB and RGBA, gray and binary written as
+RGB.
+
+## FITS
+
+`libim_fits` adds the `FITS` driver (*.fits, *.fit, *.fts) over NASA's
+cfitsio 4.0+. Register it with `imFormatRegisterFITS()` or
+`require"imlua_fits"`. Every 2D plane of every image HDU is one image (a three
+plane cube is one RGB image instead), BZERO/BSCALE are applied, and
+tile-compressed files are read transparently. It writes byte, short, ushort,
+int, float and double, uncompressed or with GZIP or (integers only) Rice tile
+compression -- floating point is never quantized.
+
+## Camera raw, and why it is off by default
+
+`-DIM_BUILD_CAMRAW=ON` builds `libim_camraw`, a read-only `CAMRAW` driver over
+LibRaw 0.20+ (the reentrant `libraw_r`) for DNG and the several hundred
+proprietary formats LibRaw knows:
+
+```sh
+brew install libraw            # macOS
+sudo apt install libraw-dev    # Debian/Ubuntu
+vcpkg install libraw           # Windows
+```
+
+LibRaw is LGPL-2.1 or CDDL-1.0. Linking it dynamically leaves IM's MIT terms
+alone, but whoever redistributes the result takes on the LGPL's obligations
+for LibRaw itself, so it is opted into rather than shipped by default -- the
+same reasoning as HEIF, with a lighter consequence. CI builds it everywhere;
+the release archives do not.
+
+It is called `CAMRAW` because IM already has a `RAW` driver for headerless
+sample data. Output is 16 bit sRGB with the camera's white balance; set
+`RawLinear` for scene-linear data or `RawHalfSize` for a fast quarter-area
+preview, between `imFileOpen` and `imFileReadImageInfo`.
 
 ## Video capture, and the camera permission it needs
 
