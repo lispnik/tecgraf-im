@@ -516,7 +516,10 @@ int imFileFormatPCX::ReadPalette()
 int imFileFormatPCX::WritePalette()
 {
   unsigned char ExtPal = (unsigned char)12;
+  /* All 256 entries are written whatever palette_count is, so the unused ones
+     must be zeros and not whatever was on the stack. */
   unsigned char pcx_colors[256 * 3];
+  memset(pcx_colors, 0, sizeof(pcx_colors));
 
   /* convert the color map to the IM format */
   for (int c = 0; c < this->palette_count; c++)

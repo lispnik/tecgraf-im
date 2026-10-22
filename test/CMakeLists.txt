@@ -19,7 +19,8 @@ add_executable(im_tests
     test_convert.cpp
     test_format.cpp
     test_misc.cpp
-    test_datatype.cpp)
+    test_datatype.cpp
+    test_uninit.cpp)
 
 # Capture is an optional add-on too, and unlike the others its tests are worth
 # having even where the backend is the do-nothing stub: the device-list
@@ -117,6 +118,40 @@ endif()
 # One CTest entry per TEST_CASE, so a crash isolates to a single reported
 # test rather than an opaque whole-binary failure.
 doctest_discover_tests(im_tests ${_im_test_properties})
+
+# Whether a driver writes heap memory it never set: every case written once
+# as the allocator leaves new blocks and once with it filling them, then
+# compared. Three processes because the allocator's fill is set when a process
+# starts; test_uninit.cpp explains why the test cannot fill the heap itself.
+# The two writing cases are marked skip so a plain run passes them by, hence
+# --no-skip here. Windows has no allocator fill, so there the comparison
+# proves nothing, and says nothing either.
+set(_im_uninit_plain ${IM_TEST_OUTPUT_DIR}/uninit-heap-plain)
+set(_im_uninit_filled ${IM_TEST_OUTPUT_DIR}/uninit-heap-filled)
+file(MAKE_DIRECTORY ${_im_uninit_plain} ${_im_uninit_filled})
+if(APPLE)
+    set(_im_uninit_fill "MallocPreScribble=1" "MallocScribble=1")
+else()
+    set(_im_uninit_fill "MALLOC_PERTURB_=85")   # glibc; ignored elsewhere
+endif()
+
+add_test(NAME uninit.heap.write.plain
+    COMMAND im_tests --no-skip "--test-case=uninit: write every case*")
+set_tests_properties(uninit.heap.write.plain PROPERTIES
+    ENVIRONMENT "IM_TEST_UNINIT_DIR=${_im_uninit_plain}"
+    FIXTURES_SETUP uninit.heap)
+
+add_test(NAME uninit.heap.write.filled
+    COMMAND im_tests --no-skip "--test-case=uninit: write every case*")
+set_tests_properties(uninit.heap.write.filled PROPERTIES
+    ENVIRONMENT "IM_TEST_UNINIT_DIR=${_im_uninit_filled};${_im_uninit_fill}"
+    FIXTURES_SETUP uninit.heap)
+
+add_test(NAME uninit.heap.compare
+    COMMAND im_tests --no-skip "--test-case=uninit: no driver writes heap*")
+set_tests_properties(uninit.heap.compare PROPERTIES
+    ENVIRONMENT "IM_TEST_UNINIT_PLAIN=${_im_uninit_plain};IM_TEST_UNINIT_FILLED=${_im_uninit_filled}"
+    FIXTURES_REQUIRED uninit.heap)
 
 # ----------------------------------------------------------------------
 # The same suite's blind spot: libim_process_omp

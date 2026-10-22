@@ -666,6 +666,13 @@ void imFileLineBufferInit(imFile* ifile)
     ifile->line_buffer_alloc = ifile->line_buffer_size + ifile->line_buffer_extra;
     ifile->line_buffer = realloc(ifile->line_buffer, ifile->line_buffer_alloc);
   }
+
+  /* A driver writes whole padded lines from this buffer but fills only the
+     samples, so the padding to a 2- or 4-byte boundary (BMP, ICO, PCX, RAS)
+     is never set. Zero it all here, so that a file carries zeros there and
+     never whatever the heap last held. */
+  if (ifile->line_buffer)
+    memset(ifile->line_buffer, 0, ifile->line_buffer_alloc);
 }
 
 int imFileLineBufferCount(imFile* ifile)

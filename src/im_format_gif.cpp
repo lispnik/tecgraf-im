@@ -987,6 +987,11 @@ void imFormatRegisterGIF(void)
 
 int imFileFormatGIF::Open(const char* file_name)
 {
+  /* The driver is made with a plain new, so this starts as whatever the heap
+     held. Fields the file does not set -- interlaced, on writing, when there
+     is no "Interlaced" attribute -- must not come from it. */
+  memset(&gif_data, 0, sizeof(gif_data));
+
   this->handle = imBinFileOpen(file_name);
   if (this->handle == NULL)
     return IM_ERR_OPEN;
@@ -1064,6 +1069,8 @@ int imFileFormatGIF::Open(const char* file_name)
 
 int imFileFormatGIF::New(const char* file_name)
 {
+  memset(&gif_data, 0, sizeof(gif_data));  /* see Open */
+
   this->handle = imBinFileNew(file_name);
   if (this->handle == NULL)
     return IM_ERR_OPEN;

@@ -127,6 +127,22 @@ compensate must stop.
 Defects where the old behaviour was not something anything could reasonably
 have depended on.
 
+- **Files carried memory the writer never set.** Whatever that memory held
+  before -- a password, a key, another image -- went out inside a file that
+  decodes correctly, so nothing about the image gave it away.
+  - `imFileLineBufferInit` left the line buffer as `realloc` returned it, and
+    BMP, ICO, PCX and Sun raster write each line's padding from there: up to 3
+    bytes of heap per line.
+  - The PCX writer wrote all 256 palette entries from a stack array it had
+    filled only `palette_count` of: up to 765 bytes of stack per indexed file.
+  - The GIF writer read its interlaced flag from a field nothing set, so an
+    image came out interlaced or not according to the heap.
+  - An SGI RLE write that failed or was aborted part way left its offset
+    tables as `malloc` returned them.
+
+  Each is now zeroed. `test/test_uninit.cpp` writes every format, compression
+  and kind of image twice, with the stack and then the heap filled differently
+  underneath, and requires byte-identical files.
 - **`im::VideoCapture::CaptureFrame` accepted images it would overrun.** Its
   three conditions were joined with `&&` rather than `||`, so an image failing
   only one of them passed — an `IM_RGB`/`IM_FLOAT` image went straight to a

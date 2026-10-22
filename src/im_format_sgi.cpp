@@ -505,8 +505,11 @@ int imFileFormatSGI::WriteImageInfo()
   if (this->comp_type == SGI_RLE)
   {
     int tablen = this->height * imColorModeDepth(this->file_color_mode);
-    this->starttab = (unsigned int *)malloc(tablen*4);
-    this->lengthtab = (unsigned int *)malloc(tablen*4);
+    /* calloc, not malloc: these are written now as placeholders and only
+       written again once every line is, so a write that fails or is aborted
+       part way must leave zeros in the file, not whatever the heap held. */
+    this->starttab = (unsigned int *)calloc(tablen, 4);
+    this->lengthtab = (unsigned int *)calloc(tablen, 4);
 
     /* writes the empty compression control information */
     /* we will write again at the end */
