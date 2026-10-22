@@ -60,12 +60,13 @@ if(APPLE)
     # in-tree dylibs are already loadable without a fix-up pass.
     #
     # Unless the caller names an install directory of its own. A package
-    # manager installing to a prefix -- Homebrew passes
-    # -DCMAKE_INSTALL_NAME_DIR=<keg>/lib in std_cmake_args -- needs installed
-    # dylibs that refer to each other *there*. Overriding it left every
-    # installed add-on loading libim from the deleted build directory, and
-    # Homebrew's relocation only rewrites each dylib's own id, not that
-    # reference. Leaving CMake's defaults in place lets install relink them.
+    # manager installing to a prefix needs installed dylibs that refer to
+    # each other *there*; with the build-tree names, every installed add-on
+    # loaded libim from the deleted build directory, and Homebrew's
+    # relocation only rewrites each dylib's own id, not that reference.
+    # Homebrew's std_cmake_args does not pass this, so the tecgraf-im
+    # formula passes -DCMAKE_INSTALL_NAME_DIR=#{opt_lib} itself. Leaving
+    # CMake's defaults in place then lets install relink them.
     if(NOT CMAKE_INSTALL_NAME_DIR)
         set(CMAKE_INSTALL_NAME_DIR "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
         set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
