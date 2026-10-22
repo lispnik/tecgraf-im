@@ -58,8 +58,18 @@ if(APPLE)
     # CFFI). BUILD_WITH_INSTALL_NAME_DIR=ON applies INSTALL_NAME_DIR
     # during the build, not just at 'cmake --install' time, so the
     # in-tree dylibs are already loadable without a fix-up pass.
-    set(CMAKE_INSTALL_NAME_DIR "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
-    set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
+    #
+    # Unless the caller names an install directory of its own. A package
+    # manager installing to a prefix -- Homebrew passes
+    # -DCMAKE_INSTALL_NAME_DIR=<keg>/lib in std_cmake_args -- needs installed
+    # dylibs that refer to each other *there*. Overriding it left every
+    # installed add-on loading libim from the deleted build directory, and
+    # Homebrew's relocation only rewrites each dylib's own id, not that
+    # reference. Leaving CMake's defaults in place lets install relink them.
+    if(NOT CMAKE_INSTALL_NAME_DIR)
+        set(CMAKE_INSTALL_NAME_DIR "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+        set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
+    endif()
     set(CMAKE_INSTALL_RPATH
         "${CMAKE_LIBRARY_OUTPUT_DIRECTORY};/opt/homebrew/lib")
 endif()
