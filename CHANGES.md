@@ -127,6 +127,12 @@ compensate must stop.
 Defects where the old behaviour was not something anything could reasonably
 have depended on.
 
+- **`imFormatInfo("CAMRAW", ...)` overran the caller's buffer.** im.h says
+  a format's extension list is at most 50 characters, and the Lua binding's
+  `im.FormatInfo` copies it into 50 bytes on its stack; CAMRAW listed 156.
+  It now lists the eight commonest (`*.dng;*.cr2;*.cr3;*.nef;*.arw;*.raf;
+  *.orf;*.rw2;`). A raw file of any other kind still opens, since LibRaw
+  identifies a file by its content.
 - **Files carried memory the writer never set.** Whatever that memory held
   before -- a password, a key, another image -- went out inside a file that
   decodes correctly, so nothing about the image gave it away.

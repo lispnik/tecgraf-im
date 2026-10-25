@@ -65,9 +65,11 @@ public:
   imFormatCAMRAW()
     :imFormat("CAMRAW",
               "Digital Camera Raw Files",
-              "*.dng;*.cr2;*.cr3;*.crw;*.nef;*.nrw;*.arw;*.srf;*.sr2;*.raf;*.orf;"
-              "*.rw2;*.pef;*.srw;*.x3f;*.3fr;*.fff;*.iiq;*.mos;*.mrw;*.dcr;*.kdc;"
-              "*.erf;*.mef;*.raw;*.rwl;",
+              /* imFormatInfo strcpy's this into the caller's buffer, which
+                 im.h says need hold no more than 50 characters, and imlua's
+                 is 50 bytes on the stack. So the commonest only: LibRaw
+                 identifies a file by its content, not by its name. */
+              "*.dng;*.cr2;*.cr3;*.nef;*.arw;*.raf;*.orf;*.rw2;",
               iRawCompTable,
               1,
               0)

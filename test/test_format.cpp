@@ -780,3 +780,29 @@ TEST_CASE("PCX: an indexed image keeps its palette")
   imImageDestroy(src);
   imImageDestroy(loaded);
 }
+
+TEST_CASE("every format's strings fit the buffers im.h promises")
+{
+  /* imFormatInfo and imFormatInfoExtra strcpy into the caller's buffers with
+     no length, and im.h documents 50 characters as the most each holds; the
+     Lua binding passes 50 bytes on the stack. CAMRAW once listed 156
+     characters of extensions. Every add-on built into this test binary has
+     registered itself by now, from its own test file. */
+  char* list[50];
+  int count = 0;
+  imFormatList(list, &count);
+  REQUIRE(count > 0);
+
+  for (int i = 0; i < count; i++)
+  {
+    char desc[1024], ext[1024], extra[1024];
+    int can_sequence;
+    INFO("format: ", list[i]);
+    REQUIRE(imFormatInfo(list[i], desc, ext, &can_sequence) == IM_ERR_NONE);
+    REQUIRE(imFormatInfoExtra(list[i], extra) == IM_ERR_NONE);
+    CHECK(strlen(list[i]) < 10);
+    CHECK(strlen(desc) < 50);
+    CHECK(strlen(ext) < 50);
+    CHECK(strlen(extra) < 50);
+  }
+}
